@@ -57,6 +57,27 @@ THINKING_MODEL=gpt-4o
 TASK_MODEL=gpt-4o
 ```
 
+### Database Configuration
+
+The system supports both SQLite (default) and PostgreSQL for persisting research state and results.
+
+**SQLite (Default):**
+```ini
+DB_PROVIDER=sqlite
+DB_URI=checkpoints.db
+```
+
+**PostgreSQL:**
+```ini
+DB_PROVIDER=postgres
+DB_URI=postgresql://user:password@localhost:5432/deepresearch
+```
+
+To initialize the database tables manually (optional, as the app does it automatically):
+```bash
+python init_db.py
+```
+
 ### Supported Providers
 
 | Provider | `AI_PROVIDER` | `AI_BASE_URL` | Notes |

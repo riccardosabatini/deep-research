@@ -8,9 +8,13 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.types import Send
 
+from rich.console import Console
+from rich.panel import Panel
+
 from .models import (
     DeepResearchState, 
     DeepResearchSearchTask, 
+    DeepResearchQueryList,
     DeepResearchSearchResult, 
     SearchResultItem,
     ImageSource
@@ -24,11 +28,14 @@ from .prompts import (
 )
 from .tools import SearchTools
 from .configuration import Config
+from .results_db import get_search_result, save_search_result
 
-# Initialize Search Tools (API key from env)
+# Initialize
 search_tools = SearchTools()
+console = Console()
 
 def get_llm(config: RunnableConfig, model_type: str = "task"):
+    # ... (keep existing get_llm implementation) ...
     """
     Helper to get the LLM instance based on configuration.
     """
@@ -79,7 +86,7 @@ async def plan_research(state: DeepResearchState, config: RunnableConfig):
     Node: Generates the research plan based on the user query.
     Uses: Thinking Model
     """
-    print(f"--- Planning Research for: {state['query']} ---")
+    console.print(Panel(f"Planning Research for: {state['query']}", title="[bold blue]Plan Research[/bold blue]"))
     llm = get_llm(config, "thinking")
     chain = report_plan_prompt | llm | StrOutputParser()
     plan = await chain.ainvoke({"query": state["query"]})
@@ -90,22 +97,39 @@ async def generate_queries(state: DeepResearchState, config: RunnableConfig):
     Node: Generates SERP queries based on the research plan.
     Uses: Thinking Model
     """
-    print("--- Generating Queries ---")
+    console.print(Panel("Generating Queries...", title="[bold blue]Generate Queries[/bold blue]"))
     llm = get_llm(config, "thinking")
     
-    # We want structured output for the queries
-    structured_llm = llm.with_structured_output(List[DeepResearchSearchTask])
+    # Use the wrapper model
+    structured_llm = llm.with_structured_output(DeepResearchQueryList)
     chain = serp_queries_prompt | structured_llm
     
-    queries = await chain.ainvoke({"plan": state["report_plan"]})
-    return {"serp_queries": queries}
+    result = await chain.ainvoke({"plan": state["report_plan"]})
+    return {"serp_queries": result.queries}
 
 async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
     """
     Node: Executes a single search task and processes the results.
     Uses: Task Model (for processing results)
     """
-    print(f"--- Executing Search: {task.query} ---")
+    # Check cache first
+    cached = await get_search_result(task.query)
+    if cached:
+        console.print(f"[dim]Found cached result for: {task.query}[/dim]")
+        sources = [SearchResultItem(**s) for s in cached["raw_result"]["sources"]]
+        images = [ImageSource(**i) for i in cached["raw_result"]["images"]]
+        learnings = cached["learnings"]
+        
+        result = DeepResearchSearchResult(
+            query=task.query,
+            research_goal=task.research_goal,
+            learnings=[learnings],
+            sources=sources,
+            images=images
+        )
+        return {"search_results": [result]}
+
+    console.print(f"[green]Executing Search:[/green] {task.query}")
     llm = get_llm(config, "task")
     
     # 1. Execute Search
@@ -127,6 +151,13 @@ async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
         "context": context_str
     })
     
+    # Save to DB
+    await save_search_result(
+        query=task.query,
+        raw_result={"sources": [s.dict() for s in sources], "images": [i.dict() for i in images]},
+        learnings=learnings
+    )
+    
     # 3. Return Result
     result = DeepResearchSearchResult(
         query=task.query,
@@ -143,7 +174,7 @@ async def generate_feedback_queries(state: DeepResearchState, config: RunnableCo
     Node: Generates new queries based on user feedback.
     Uses: Thinking Model
     """
-    print("--- Generating Feedback Queries ---")
+    console.print(Panel("Generating Feedback Queries...", title="[bold blue]Feedback Loop[/bold blue]"))
     llm = get_llm(config, "thinking")
     
     # Aggregate learnings for context
@@ -152,17 +183,17 @@ async def generate_feedback_queries(state: DeepResearchState, config: RunnableCo
         all_learnings.extend(result.learnings)
     learnings_str = "\n".join(all_learnings)
     
-    structured_llm = llm.with_structured_output(List[DeepResearchSearchTask])
+    structured_llm = llm.with_structured_output(DeepResearchQueryList)
     chain = review_prompt | structured_llm
     
-    queries = await chain.ainvoke({
+    result = await chain.ainvoke({
         "plan": state["report_plan"],
         "learnings": learnings_str,
         "suggestion": state["user_feedback"]
     })
     
     return {
-        "serp_queries": queries, 
+        "serp_queries": result.queries, 
         "user_feedback": None 
     }
 
@@ -171,7 +202,7 @@ async def write_report(state: DeepResearchState, config: RunnableConfig):
     Node: Synthesizes the final report.
     Uses: Task Model
     """
-    print("--- Writing Final Report ---")
+    console.print(Panel("Writing Final Report...", title="[bold blue]Write Report[/bold blue]"))
     llm = get_llm(config, "task")
     
     # Aggregate learnings, sources, and images

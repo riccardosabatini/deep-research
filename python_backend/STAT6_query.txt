@@ -1,0 +1,5 @@
+Im a biotech entrepreneur. I developed a technology that can discover small molecules able to degrade through CRBN any intracellular target with highly selectivity and with oral bioavailable.
+
+I want you to review the opportunity of building a new monovalent glue degrader dryg to degrade STAT6. Work like a biotech analysist, review the current understanding of the target, what are the cellular and in-vivo validation, what are the best indications and the potential liabilities. Map the landscape and all the companies working on it, what clinical trials have been executed, what analyst say and what the sicnetific community and clinicai community are focusing the attention on. For each relevant competitor analyse the possible angle to become first-in-class or best-in-class in case a drug is already approved. Go deep, check what are the limitation of current therapies, what endpoint a monevalent glue with high selectivity could win.
+
+Be technical, acute and very inforamtive without adding unnecessary vanilla sutff. You are talking with a team and very experrince biotech people. Format everything is a self consisentent report with clear references.

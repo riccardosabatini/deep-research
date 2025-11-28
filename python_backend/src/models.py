@@ -17,6 +17,9 @@ class DeepResearchSearchTask(BaseModel):
     query: str
     research_goal: str = Field(..., description="The specific goal of this search query")
 
+class DeepResearchQueryList(BaseModel):
+    queries: List[DeepResearchSearchTask]
+
 class DeepResearchSearchResult(BaseModel):
     query: str
     research_goal: str
