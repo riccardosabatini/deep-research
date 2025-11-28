@@ -154,3 +154,27 @@ review_prompt = ChatPromptTemplate.from_messages([
     ("system", get_system_prompt()),
     ("user", REVIEW_INSTRUCTION)
 ])
+
+AUTO_FEEDBACK_INSTRUCTION = """This is the report plan:
+<PLAN>
+{plan}
+</PLAN>
+
+Here are all the learnings from previous research:
+<LEARNINGS>
+{learnings}
+</LEARNINGS>
+
+You are an expert research supervisor. Your goal is to review the progress and identify any gaps or new strategic topics that have emerged.
+Check if all topics in the plan have been sufficiently covered by the learnings.
+Identify any new, important sub-topics that were discovered in the learnings but not deeply explored yet.
+
+If you find gaps or new strategic directions, provide a specific feedback/suggestion string to guide the next round of research.
+If you believe the research is comprehensive and covers the plan well, output "SATISFIED".
+
+Your response should be just the feedback string or "SATISFIED"."""
+
+auto_feedback_prompt = ChatPromptTemplate.from_messages([
+    ("system", get_system_prompt()),
+    ("user", AUTO_FEEDBACK_INSTRUCTION)
+])

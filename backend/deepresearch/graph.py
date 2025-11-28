@@ -1,12 +1,14 @@
 from langgraph.graph import StateGraph, END, START
 from .models import DeepResearchState
+from .configuration import Config
 from .nodes import (
     plan_research, 
     generate_queries, 
     perform_search, 
     write_report, 
     route_to_search,
-    generate_feedback_queries
+    generate_feedback_queries,
+    analyze_research_gaps
 )
 
 # Define the graph
@@ -18,6 +20,7 @@ workflow.add_node("generate_queries", generate_queries)
 workflow.add_node("perform_search", perform_search)
 workflow.add_node("generate_feedback_queries", generate_feedback_queries)
 workflow.add_node("write_report", write_report)
+workflow.add_node("analyze_research_gaps", analyze_research_gaps)
 
 # Dummy node for the review step (pass-through)
 def review_step(state: DeepResearchState):
@@ -35,18 +38,48 @@ workflow.add_conditional_edges(
     ["perform_search"]
 )
 
-# After search, go to review step
-workflow.add_edge("perform_search", "review_step")
+# Logic to decide next step after search
+def evaluate_progress(state: DeepResearchState):
+    config = Config.from_env()
+    feedback_mode = state.get("feedback_mode", config.feedback_mode)
+    
+    if feedback_mode == "auto":
+        loop_count = state.get("feedback_loop_count", 0)
+        if loop_count < config.max_feedback_loops:
+            return "analyze_research_gaps"
+        else:
+            return "write_report"
+    else:
+        # Human mode: Go to review step (which interrupts)
+        return "review_step"
 
-# Conditional logic from review step
-def check_feedback(state: DeepResearchState):
+workflow.add_conditional_edges(
+    "perform_search",
+    evaluate_progress,
+    ["analyze_research_gaps", "write_report", "review_step"]
+)
+
+# Conditional logic from review step (Human Loop)
+def check_human_feedback(state: DeepResearchState):
     if state.get("user_feedback"):
         return "generate_feedback_queries"
     return "write_report"
 
 workflow.add_conditional_edges(
     "review_step",
-    check_feedback,
+    check_human_feedback,
+    ["generate_feedback_queries", "write_report"]
+)
+
+# Conditional logic from auto feedback (Auto Loop)
+def check_auto_feedback(state: DeepResearchState):
+    if state.get("user_feedback"):
+        return "generate_feedback_queries"
+    return "write_report"
+
+workflow.add_conditional_edges(
+    "analyze_research_gaps",
+    check_auto_feedback,
     ["generate_feedback_queries", "write_report"]
 )
 

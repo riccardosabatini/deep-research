@@ -43,4 +43,6 @@ class DeepResearchState(TypedDict):
     # Annotated with operator.add to allow appending results from parallel nodes
     search_results: Annotated[List[DeepResearchSearchResult], operator.add]
     user_feedback: Optional[str]
+    feedback_loop_count: int
+    feedback_mode: str # "human" or "auto"
     final_report: str

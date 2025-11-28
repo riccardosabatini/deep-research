@@ -18,10 +18,11 @@ from .models import (
 )
 from .prompts import (
     report_plan_prompt, 
-    serp_queries_prompt, 
+    serp_queries_prompt,
     process_search_result_prompt, 
     final_report_prompt,
-    review_prompt
+    review_prompt,
+    auto_feedback_prompt
 )
 from .tools import SearchTools
 from .configuration import Config
@@ -210,6 +211,34 @@ async def generate_feedback_queries(state: DeepResearchState, config: RunnableCo
         "serp_queries": [q.model_dump() for q in result.queries], 
         "user_feedback": None 
     }
+
+async def analyze_research_gaps(state: DeepResearchState, config: RunnableConfig):
+    """
+    Node: Analyzes research gaps and generates feedback (Auto-Mode).
+    Uses: Thinking Model
+    """
+    console.print(Panel("Analyzing Research Gaps...", title="[bold blue]Auto Feedback[/bold blue]"))
+    llm = get_llm(config, "thinking")
+    
+    # Aggregate learnings
+    all_learnings = []
+    for result in state["search_results"]:
+        all_learnings.extend(result["learnings"])
+    learnings_str = "\n".join(all_learnings)
+    
+    chain = auto_feedback_prompt | llm | StrOutputParser()
+    
+    feedback = await chain.ainvoke({
+        "plan": state["report_plan"],
+        "learnings": learnings_str
+    })
+    
+    if "SATISFIED" in feedback:
+        console.print("[bold green]Auto-Feedback: Research Satisfied[/bold green]")
+        return {"user_feedback": None, "feedback_loop_count": state.get("feedback_loop_count", 0) + 1}
+    else:
+        console.print(f"[bold yellow]Auto-Feedback Generated:[/bold yellow] {feedback}")
+        return {"user_feedback": feedback, "feedback_loop_count": state.get("feedback_loop_count", 0) + 1}
 
 async def write_report(state: DeepResearchState, config: RunnableConfig):
     """

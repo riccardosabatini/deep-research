@@ -80,7 +80,7 @@ logging.basicConfig(
 
 console = Console()
 
-async def run_research(query: str, thread_id: str = None):
+async def run_research(query: str, thread_id: str = None, feedback_mode: str = "human"):
     """
     Runs the deep research process with persistence.
     """
@@ -104,15 +104,15 @@ async def run_research(query: str, thread_id: str = None):
             serde=JsonSerializer()
         ) as checkpointer:
             await checkpointer.setup()
-            return await _run_graph(checkpointer, query, thread_id)
+            return await _run_graph(checkpointer, query, thread_id, feedback_mode)
     else:
         # Default to SQLite
         async with aiosqlite.connect(app_config.db_uri) as conn:
             checkpointer = AsyncSqliteSaver(conn, serde=JsonSerializer())
             await checkpointer.setup()
-            return await _run_graph(checkpointer, query, thread_id)
+            return await _run_graph(checkpointer, query, thread_id, feedback_mode)
 
-async def _run_graph(checkpointer, query: str, thread_id: str):
+async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: str):
     # Create the graph with the checkpointer
     app = workflow.compile(
         checkpointer=checkpointer, 
@@ -141,6 +141,8 @@ async def _run_graph(checkpointer, query: str, thread_id: str):
             "serp_queries": [],
             "search_results": [],
             "user_feedback": None,
+            "feedback_loop_count": 0,
+            "feedback_mode": feedback_mode,
             "final_report": ""
         }
         
@@ -172,6 +174,28 @@ async def _run_graph(checkpointer, query: str, thread_id: str):
             console.print(f"Sources: {len(res['sources'])}")
             
         # 3. Human-in-the-Loop: Ask for feedback
+        # Only ask for feedback if we are in human mode AND at the review_step
+        # If we are in auto mode, the graph shouldn't have interrupted unless it finished or hit a limit?
+        # Actually, interrupt_before=["review_step"] is set globally.
+        # But in Auto mode, we don't go to review_step unless we want to stop?
+        # Wait, the graph logic says:
+        # if auto: analyze_research_gaps -> ...
+        # if human: review_step
+        
+        # So if we are in auto mode, we should NOT be hitting this loop unless the graph finished.
+        # BUT, if we are resuming, we might be in a state.
+        
+        # If the graph finished, astream returns.
+        # If the graph interrupted, we are here.
+        
+        # If we are in auto mode, we shouldn't have interrupted at review_step because we don't go there.
+        # So if we are here, it means we are either done or in human mode.
+        
+        # Let's check if there are tasks to run.
+        if not snapshot.next:
+             console.print("[bold green]Research Completed.[/bold green]")
+             break
+             
         console.print(Panel("[REVIEW] Do you want to add more queries based on these results?\nType your feedback/suggestion to generate new queries, or press Enter to finish.", title="[bold red]User Feedback[/bold red]"))
         
         feedback = input("> ")
@@ -202,12 +226,15 @@ async def _run_graph(checkpointer, query: str, thread_id: str):
     final_state = await app.aget_state(run_config)
     return final_state.values.get("final_report")
 
-if __name__ == "__main__":
+def parse_arguments(args=None):
     parser = argparse.ArgumentParser(description="Deep Research Assistant")
     parser.add_argument("query", nargs="?", help="The research query (optional if resuming)")
     parser.add_argument("--thread-id", help="Thread ID to resume an existing research session")
-    
-    args = parser.parse_args()
+    parser.add_argument("--feedback-mode", choices=["human", "auto"], default="human", help="Feedback mode: 'human' for manual review, 'auto' for LLM review")
+    return parser.parse_args(args)
+
+if __name__ == "__main__":
+    args = parse_arguments()
     
     if not args.query and not args.thread_id:
         parser.print_help()
@@ -221,7 +248,7 @@ if __name__ == "__main__":
             query = f.read().strip()
     
     try:
-        final_report = asyncio.run(run_research(query=query, thread_id=args.thread_id))
+        final_report = asyncio.run(run_research(query=query, thread_id=args.thread_id, feedback_mode=args.feedback_mode))
         if final_report:
             console.print(Panel(Markdown(final_report), title="[bold green]Final Report[/bold green]"))
         else:

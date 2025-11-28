@@ -20,6 +20,8 @@ class Config:
     max_search_results: int = 5
     redis_url: str = "redis://localhost:6379"
     redis_enabled: bool = False
+    feedback_mode: str = "human"
+    max_feedback_loops: int = 3
     
     @classmethod
     def from_env(cls):
@@ -34,5 +36,7 @@ class Config:
             db_uri=os.getenv("DB_URI", "checkpoints.db"),
             max_search_results=int(os.getenv("MAX_SEARCH_RESULTS", "5")),
             redis_url=os.getenv("REDIS_URL", "redis://localhost:6379"),
-            redis_enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true"
+            redis_enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true",
+            feedback_mode=os.getenv("FEEDBACK_MODE", "human").lower(), # human or auto
+            max_feedback_loops=int(os.getenv("MAX_FEEDBACK_LOOPS", "3"))
         )
