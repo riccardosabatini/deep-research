@@ -55,6 +55,7 @@ AI_PROVIDER=openai
 AI_BASE_URL=        # Leave empty for OpenAI, or set for others
 THINKING_MODEL=gpt-4o
 TASK_MODEL=gpt-4o
+MAX_SEARCH_RESULTS=5 # Optional: Max results per search query (default: 5)
 ```
 
 ### Database Configuration
@@ -110,6 +111,30 @@ python main.py "The future of quantum computing in 2025"
     *   Press Enter to proceed to the final report.
 5.  **Report**: The agent synthesizes a final markdown report.
 
+### Resuming a Research Session
+
+The system supports pausing and resuming research sessions using a unique **Thread ID**.
+
+1.  **Start a new session**:
+    ```bash
+    python main.py "The future of quantum computing"
+    ```
+    The output will display a Thread ID:
+    ```text
+    ╭── Deep Research ──╮
+    │ Research Thread ID: 1234-5678-abcd-efgh │
+    ╰───────────────────╯
+    ```
+
+2.  **Stop the session**:
+    You can stop the script at any time (e.g., `Ctrl+C`) or wait for it to pause at the "Review" step.
+
+3.  **Resume the session**:
+    Use the `--thread-id` flag to continue from where you left off:
+    ```bash
+    python main.py --thread-id 1234-5678-abcd-efgh
+    ```
+
 ## Project Structure
 
 *   `main.py`: Entry point and orchestration loop.
@@ -119,3 +144,28 @@ python main.py "The future of quantum computing in 2025"
 *   `src/configuration.py`: Configuration management.
 *   `src/tools.py`: Search tool wrapper (Tavily).
 *   `src/prompts.py`: Prompt templates.
+
+## Running Tests
+
+This project uses `pytest` for unit and integration testing.
+
+1.  **Install Test Dependencies** (if not already installed):
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+2.  **Run All Tests**:
+    ```bash
+    pytest
+    ```
+
+3.  **Run Specific Tests**:
+    ```bash
+    pytest tests/test_resume.py
+    ```
+
+4.  **View Output**:
+    Use `-s` to see stdout/stderr (e.g., print statements) during test execution:
+    ```bash
+    pytest -s
+    ```

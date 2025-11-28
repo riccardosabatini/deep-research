@@ -3,6 +3,7 @@ import os
 import uuid
 from typing import Any
 from dotenv import load_dotenv
+import aiosqlite
 
 # Load environment variables (API keys, etc.)
 load_dotenv()
@@ -44,15 +45,27 @@ def json_loads(obj):
 
 class JsonSerializer:
     def dumps(self, obj) -> bytes:
-        # Postgres saver might expect bytes or string depending on implementation
-        # Usually jsonb expects string, but some serializers return bytes.
-        # Let's return string as json.dumps returns string.
-        # Wait, SerializerProtocol usually expects bytes?
-        # Let's check if it fails. If it expects bytes, I'll encode.
-        return json.dumps(obj, default=custom_encoder).encode("utf-8")
+        # console.print(f"[DEBUG] Serializing object type: {type(obj)}")
+        try:
+            return json.dumps(obj, default=custom_encoder).encode("utf-8")
+        except TypeError as e:
+            console.print(f"[ERROR] Serialization failed for: {obj}")
+            raise e
 
     def loads(self, data: bytes) -> Any:
         return json.loads(data.decode("utf-8"), object_hook=custom_decoder)
+
+    def dumps_typed(self, obj) -> tuple[str, bytes]:
+        # console.print(f"[DEBUG] dumps_typed called for {type(obj)}")
+        if isinstance(obj, bytes):
+            return "bytes", obj
+        return "json", self.dumps(obj)
+
+    def loads_typed(self, data: tuple[str, bytes]) -> Any:
+        type_, data_ = data
+        if type_ == "bytes":
+            return data_
+        return self.loads(data_)
 
 # Setup logging
 logging.basicConfig(
@@ -73,37 +86,47 @@ async def run_research(query: str, thread_id: str = None):
     # Initialize configuration
     app_config = Config.from_env()
     
-    # Setup Checkpointer
-    if app_config.db_provider == "postgres":
-        checkpointer_cm = AsyncPostgresSaver.from_conn_string(
-            app_config.db_uri,
-            serde=JsonSerializer()
-        )
-    else:
-        # Default to SQLite
-        checkpointer_cm = AsyncSqliteSaver.from_conn_string(app_config.db_uri)
-
     # Initialize DB (for search results)
     await init_db()
 
-    async with checkpointer_cm as checkpointer:
-        # For Postgres, we need to setup the tables
-        if app_config.db_provider == "postgres":
+    # Setup Checkpointer
+    if app_config.db_provider == "postgres":
+        async with AsyncPostgresSaver.from_conn_string(
+            app_config.db_uri,
+            serde=JsonSerializer()
+        ) as checkpointer:
             await checkpointer.setup()
+            return await _run_graph(checkpointer, query, thread_id)
+    else:
+        # Default to SQLite
+        async with aiosqlite.connect(app_config.db_uri) as conn:
+            checkpointer = AsyncSqliteSaver(conn, serde=JsonSerializer())
+            await checkpointer.setup()
+            return await _run_graph(checkpointer, query, thread_id)
+
+async def _run_graph(checkpointer, query: str, thread_id: str):
+    # Create the graph with the checkpointer
+    app = workflow.compile(
+        checkpointer=checkpointer, 
+        interrupt_before=["review_step"]
+    )
+    
+    # Generate a thread ID if not provided
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+    run_config = {"configurable": {"thread_id": thread_id}}
+    
+    console.print(Panel(f"Research Thread ID: {thread_id}", title="[bold blue]Deep Research[/bold blue]"))
+    
+    # Check if state exists
+    state = await app.aget_state(run_config)
+    
+    if not state.values:
+        # New research session
+        if not query:
+            raise ValueError("Query is required for a new research session.")
             
-        # Create the graph with the checkpointer
-        app = workflow.compile(
-            checkpointer=checkpointer, 
-            interrupt_before=["review_step"]
-        )
-        
-        # Generate a thread ID if not provided
-        if not thread_id:
-            thread_id = str(uuid.uuid4())
-        run_config = {"configurable": {"thread_id": thread_id}}
-        
-        # 1. Start the process (runs Plan -> Generate -> Search -> Pauses at Review)
-        console.print(Panel(f"Starting Research (Thread: {thread_id})", title="[bold blue]Deep Research[/bold blue]"))
+        console.print(f"[bold green]Starting new research session...[/bold green]")
         initial_state = {
             "query": query,
             "report_plan": "",
@@ -117,76 +140,85 @@ async def run_research(query: str, thread_id: str = None):
         async for event in app.astream(initial_state, config=run_config):
             for key, value in event.items():
                 console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
+    else:
+        console.print(f"[bold yellow]Resuming existing research session...[/bold yellow]")
+
+    # 2. Review Loop
+    while True:
+        # Inspect State at Interrupt
+        snapshot = await app.aget_state(run_config)
+        if not snapshot.values:
+            break 
+            
+        # Check if we are done (final_report exists and next is empty?)
+        if "final_report" in snapshot.values and snapshot.values["final_report"]:
+             pass
+
+        current_results = snapshot.values.get("search_results", [])
+        console.print(f"\n[bold yellow]=== Search Results ({len(current_results)} items) ===[/bold yellow]")
+        for i, res in enumerate(current_results):
+            # res is now a dict
+            console.print(f"\n[bold]Result {i+1}:[/bold] {res['query']}")
+            console.print(f"[italic]Goal:[/italic] {res['research_goal']}")
+            console.print(f"Learnings: {len(res['learnings'])} blocks")
+            console.print(f"Sources: {len(res['sources'])}")
+            
+        # 3. Human-in-the-Loop: Ask for feedback
+        console.print(Panel("[REVIEW] Do you want to add more queries based on these results?\nType your feedback/suggestion to generate new queries, or press Enter to finish.", title="[bold red]User Feedback[/bold red]"))
         
-        # 2. Review Loop
-        while True:
-            # Inspect State at Interrupt
-            snapshot = await app.aget_state(run_config)
-            if not snapshot.values:
-                break # Should not happen if paused
-                
-            current_results = snapshot.values.get("search_results", [])
+        feedback = input("> ")
+        
+        if not feedback.strip():
+            # No feedback, proceed to report
+            console.print("\n[bold green]--- Proceeding to Final Report ---[/bold green]")
+            # We update state to ensure user_feedback is None (it should be None by default, but to be safe)
+            # await app.aupdate_state(run_config, {"user_feedback": None})
             
-            console.print(f"\n[bold yellow]=== Search Results ({len(current_results)} items) ===[/bold yellow]")
-            for i, res in enumerate(current_results):
-                console.print(f"\n[bold]Result {i+1}:[/bold] {res.query}")
-                console.print(f"[italic]Goal:[/italic] {res.research_goal}")
-                console.print(f"Learnings: {len(res.learnings)} blocks")
-                console.print(f"Sources: {len(res.sources)}")
-                
-            # 3. Human-in-the-Loop: Ask for feedback
-            console.print(Panel("[REVIEW] Do you want to add more queries based on these results?\nType your feedback/suggestion to generate new queries, or press Enter to finish.", title="[bold red]User Feedback[/bold red]"))
+            # Resume execution (runs review_step -> write_report)
+            async for event in app.astream(None, config=run_config):
+                for key, value in event.items():
+                    console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
+            break
+        else:
+            # User provided feedback
+            console.print(f"\n[bold]Generating new queries based on:[/bold] '{feedback}'")
+            # Update state with feedback
+            await app.aupdate_state(run_config, {"user_feedback": feedback})
             
-            feedback = input("> ")
+            # Resume execution (runs review_step -> generate_feedback_queries -> perform_search -> Pauses at Review)
+            async for event in app.astream(None, config=run_config):
+                for key, value in event.items():
+                    console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
             
-            if not feedback.strip():
-                # No feedback, proceed to report
-                console.print("\n[bold green]--- Proceeding to Final Report ---[/bold green]")
-                # We update state to ensure user_feedback is None (it should be None by default, but to be safe)
-                await app.aupdate_state(run_config, {"user_feedback": None})
-                
-                # Resume execution (runs review_step -> write_report)
-                async for event in app.astream(None, config=run_config):
-                    for key, value in event.items():
-                        console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
-                break
-            else:
-                # User provided feedback
-                console.print(f"\n[bold]Generating new queries based on:[/bold] '{feedback}'")
-                # Update state with feedback
-                await app.aupdate_state(run_config, {"user_feedback": feedback})
-                
-                # Resume execution (runs review_step -> generate_feedback_queries -> perform_search -> Pauses at Review)
-                async for event in app.astream(None, config=run_config):
-                    for key, value in event.items():
-                        console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
-                
-                # Loop continues, showing new results...
-                
-        # Get final state
-        final_state = await app.aget_state(run_config)
-        return final_state.values.get("final_report")
+    # Get final state
+    final_state = await app.aget_state(run_config)
+    return final_state.values.get("final_report")
 
 if __name__ == "__main__":
-    # Example usage
-    import sys
+    parser = argparse.ArgumentParser(description="Deep Research Assistant")
+    parser.add_argument("query", nargs="?", help="The research query (optional if resuming)")
+    parser.add_argument("--thread-id", help="Thread ID to resume an existing research session")
     
-    if len(sys.argv) < 2:
-        console.print("[bold red]Usage:[/bold red] python main.py <query_or_file_path>")
+    args = parser.parse_args()
+    
+    if not args.query and not args.thread_id:
+        parser.print_help()
         sys.exit(1)
         
-    input_arg = sys.argv[1]
-    
     # Check if input is a file
-    if os.path.isfile(input_arg):
-        console.print(f"[dim]Reading query from file: {input_arg}[/dim]")
-        with open(input_arg, "r") as f:
+    query = args.query
+    if query and os.path.isfile(query):
+        console.print(f"[dim]Reading query from file: {query}[/dim]")
+        with open(query, "r") as f:
             query = f.read().strip()
-    else:
-        query = input_arg
     
     try:
-        final_report = asyncio.run(run_research(query))
-        console.print(Panel(Markdown(final_report), title="[bold green]Final Report[/bold green]"))
+        final_report = asyncio.run(run_research(query=query, thread_id=args.thread_id))
+        if final_report:
+            console.print(Panel(Markdown(final_report), title="[bold green]Final Report[/bold green]"))
+        else:
+            console.print("[bold red]Research finished without generating a report.[/bold red]")
     except Exception as e:
         console.print(f"[bold red]An error occurred:[/bold red] {e}")
+        import traceback
+        console.print(traceback.format_exc())

@@ -16,7 +16,8 @@ class Config:
     api_key: str = ""
     log_level: str = "INFO"
     db_provider: str = "sqlite" # sqlite or postgres
-    db_uri: str = "checkpoints.db" # filename for sqlite, connection string for postgres
+    db_uri: str = "sqlite:///search_results.db" # filename for sqlite, connection string for postgres
+    max_search_results: int = 5
     
     @classmethod
     def from_env(cls):

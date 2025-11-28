@@ -31,7 +31,7 @@ async def test_generate_queries(mock_llm, mock_config, mocker):
     
     assert "serp_queries" in result
     assert len(result["serp_queries"]) == 2
-    assert result["serp_queries"][0].query == "q1"
+    assert result["serp_queries"][0]["query"] == "q1"
 
 @pytest.mark.asyncio
 async def test_perform_search(mock_llm, mock_search_tools, mock_config, mocker):
@@ -42,15 +42,15 @@ async def test_perform_search(mock_llm, mock_search_tools, mock_config, mocker):
     mocker.patch("src.nodes.get_search_result", return_value=None) # Cache miss
     mocker.patch("src.nodes.save_search_result", new_callable=AsyncMock)
     
-    task = DeepResearchSearchTask(query="Test Search", research_goal="Test Goal")
+    task = {"query": "Test Search", "research_goal": "Test Goal"}
     result = await perform_search(task, mock_config)
     
     assert "search_results" in result
     assert len(result["search_results"]) == 1
     search_res = result["search_results"][0]
-    assert search_res.query == "Test Search"
-    assert len(search_res.sources) == 2
-    assert len(search_res.images) == 1
+    assert search_res["query"] == "Test Search"
+    assert len(search_res["sources"]) == 2
+    assert len(search_res["images"]) == 1
     
     mock_search_tools.perform_search.assert_called_once_with("Test Search")
 
@@ -61,13 +61,13 @@ async def test_write_report(mock_llm, mock_config, mocker):
     state = {
         "report_plan": "Test Plan",
         "search_results": [
-            DeepResearchSearchResult(
-                query="q1", 
-                research_goal="g1", 
-                learnings=["l1"], 
-                sources=[], 
-                images=[]
-            )
+            {
+                "query": "q1", 
+                "research_goal": "g1", 
+                "learnings": ["l1"], 
+                "sources": [], 
+                "images": []
+            }
         ]
     }
     result = await write_report(state, mock_config)

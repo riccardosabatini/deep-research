@@ -1,6 +1,7 @@
 import os
 from typing import List, Dict, Any
 from tavily import TavilyClient
+from .configuration import Config
 from .models import SearchResultItem, ImageSource
 
 class SearchTools:
@@ -9,8 +10,9 @@ class SearchTools:
         if not api_key:
             raise ValueError("TAVILY_API_KEY environment variable is not set")
         self.client = TavilyClient(api_key=api_key)
+        self.config = Config.from_env()
 
-    async def perform_search(self, query: str, max_results: int = 5) -> Dict[str, List[Any]]:
+    async def perform_search(self, query: str) -> Dict[str, List[Any]]:
         """
         Executes a search using Tavily and returns structured results.
         """
@@ -22,7 +24,7 @@ class SearchTools:
             response = self.client.search(
                 query=query,
                 search_depth="advanced",
-                max_results=max_results,
+                max_results=self.config.max_search_results,
                 include_images=True,
                 include_raw_content=True
             )

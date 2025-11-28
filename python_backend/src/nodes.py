@@ -106,9 +106,9 @@ async def generate_queries(state: DeepResearchState, config: RunnableConfig):
     chain = (serp_queries_prompt | structured_llm).with_retry(stop_after_attempt=5)
     
     result = await chain.ainvoke({"plan": state["report_plan"]})
-    return {"serp_queries": result.queries}
+    return {"serp_queries": [q.model_dump() for q in result.queries]}
 
-async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
+async def perform_search(task: dict, config: RunnableConfig):
     """
     Node: Executes a single search task and processes the results.
     Uses: Task Model (for processing results)
@@ -117,28 +117,31 @@ async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
     configurable = config.get("configurable", {})
     thread_id = configurable.get("thread_id", "default")
     
+    # Convert dict to model
+    task_model = DeepResearchSearchTask(**task)
+    
     # Check cache first
-    cached = await get_search_result(thread_id, task.query)
+    cached = await get_search_result(thread_id, task_model.query)
     if cached:
-        console.print(f"[dim]Found cached result for: {task.query}[/dim]")
+        console.print(f"[dim]Found cached result for: {task_model.query}[/dim]")
         sources = [SearchResultItem(**s) for s in cached["raw_result"]["sources"]]
         images = [ImageSource(**i) for i in cached["raw_result"]["images"]]
         learnings = cached["learnings"]
         
         result = DeepResearchSearchResult(
-            query=task.query,
-            research_goal=task.research_goal,
+            query=task_model.query,
+            research_goal=task_model.research_goal,
             learnings=[learnings],
             sources=sources,
             images=images
         )
-        return {"search_results": [result]}
+        return {"search_results": [result.model_dump()]}
 
-    console.print(f"[green]Executing Search:[/green] {task.query}")
+    console.print(f"[green]Executing Search:[/green] {task_model.query}")
     llm = get_llm(config, "task")
     
     # 1. Execute Search
-    search_data = await search_tools.perform_search(task.query)
+    search_data = await search_tools.perform_search(task_model.query)
     sources: List[SearchResultItem] = search_data["sources"]
     images: List[ImageSource] = search_data["images"]
     
@@ -156,29 +159,29 @@ async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
     )
     
     learnings = await chain.ainvoke({
-        "query": task.query,
-        "researchGoal": task.research_goal,
+        "query": task_model.query,
+        "researchGoal": task_model.research_goal,
         "context": context_str
     })
     
     # Save to DB
     await save_search_result(
         research_id=thread_id,
-        query=task.query,
+        query=task_model.query,
         raw_result={"sources": [s.model_dump() for s in sources], "images": [i.model_dump() for i in images]},
         learnings=learnings
     )
     
     # 3. Return Result
     result = DeepResearchSearchResult(
-        query=task.query,
-        research_goal=task.research_goal,
+        query=task_model.query,
+        research_goal=task_model.research_goal,
         learnings=[learnings],
         sources=sources,
         images=images
     )
     
-    return {"search_results": [result]}
+    return {"search_results": [result.model_dump()]}
 
 async def generate_feedback_queries(state: DeepResearchState, config: RunnableConfig):
     """
@@ -191,7 +194,8 @@ async def generate_feedback_queries(state: DeepResearchState, config: RunnableCo
     # Aggregate learnings for context
     all_learnings = []
     for result in state["search_results"]:
-        all_learnings.extend(result.learnings)
+        # result is dict
+        all_learnings.extend(result["learnings"])
     learnings_str = "\n".join(all_learnings)
     
     structured_llm = llm.with_structured_output(DeepResearchQueryList)
@@ -204,7 +208,7 @@ async def generate_feedback_queries(state: DeepResearchState, config: RunnableCo
     })
     
     return {
-        "serp_queries": result.queries, 
+        "serp_queries": [q.model_dump() for q in result.queries], 
         "user_feedback": None 
     }
 
@@ -222,9 +226,10 @@ async def write_report(state: DeepResearchState, config: RunnableConfig):
     all_images = []
     
     for result in state["search_results"]:
-        all_learnings.extend(result.learnings)
-        all_sources.extend(result.sources)
-        all_images.extend(result.images)
+        # result is dict
+        all_learnings.extend(result["learnings"])
+        all_sources.extend([SearchResultItem(**s) for s in result["sources"]])
+        all_images.extend([ImageSource(**i) for i in result["images"]])
         
     # Format for prompt
     learnings_str = "\n".join(all_learnings)
