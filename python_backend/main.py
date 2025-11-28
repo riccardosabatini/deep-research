@@ -1,6 +1,7 @@
 import asyncio
 import os
 import uuid
+from typing import Any
 from dotenv import load_dotenv
 
 # Load environment variables (API keys, etc.)
@@ -16,6 +17,42 @@ from src.results_db import init_db
 from rich.logging import RichHandler
 import logging
 from src.configuration import Config
+from src.models import DeepResearchState
+from langgraph.types import Send
+from pydantic import BaseModel
+import json
+import argparse
+
+# Custom JSON serialization for LangGraph
+def custom_encoder(obj):
+    if isinstance(obj, Send):
+        return {"__type__": "Send", "node": obj.node, "arg": obj.arg}
+    if isinstance(obj, BaseModel):
+        return obj.model_dump()
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+def custom_decoder(obj):
+    if "__type__" in obj and obj["__type__"] == "Send":
+        return Send(obj["node"], obj["arg"])
+    return obj
+
+def json_dumps(obj):
+    return json.dumps(obj, default=custom_encoder)
+
+def json_loads(obj):
+    return json.loads(obj, object_hook=custom_decoder)
+
+class JsonSerializer:
+    def dumps(self, obj) -> bytes:
+        # Postgres saver might expect bytes or string depending on implementation
+        # Usually jsonb expects string, but some serializers return bytes.
+        # Let's return string as json.dumps returns string.
+        # Wait, SerializerProtocol usually expects bytes?
+        # Let's check if it fails. If it expects bytes, I'll encode.
+        return json.dumps(obj, default=custom_encoder).encode("utf-8")
+
+    def loads(self, data: bytes) -> Any:
+        return json.loads(data.decode("utf-8"), object_hook=custom_decoder)
 
 # Setup logging
 logging.basicConfig(
@@ -31,38 +68,39 @@ async def run_research(query: str, thread_id: str = None):
     """
     Runs the deep research process with persistence.
     """
-    # Initialize results database (creates tables if needed)
-    await init_db()
+    console.print(f"[bold green]Starting research session...[/bold green]")
     
-    if not thread_id:
-        thread_id = str(uuid.uuid4())
-        
-    console.print(f"[bold green]Starting research session:[/bold green] {thread_id}")
+    # Initialize configuration
+    app_config = Config.from_env()
     
-    config = Config.from_env()
-    
-    # Choose checkpointer based on config
-    if config.db_provider == "sqlite":
-        checkpointer_cm = AsyncSqliteSaver.from_conn_string(config.db_uri)
-    elif config.db_provider == "postgres":
-        # Note: AsyncPostgresSaver usually needs a connection pool or string
-        # We'll assume from_conn_string works similar to sqlite or use the constructor
-        checkpointer_cm = AsyncPostgresSaver.from_conn_string(config.db_uri)
+    # Setup Checkpointer
+    if app_config.db_provider == "postgres":
+        checkpointer_cm = AsyncPostgresSaver.from_conn_string(
+            app_config.db_uri,
+            serde=JsonSerializer()
+        )
     else:
-        raise ValueError(f"Unsupported DB provider: {config.db_provider}")
+        # Default to SQLite
+        checkpointer_cm = AsyncSqliteSaver.from_conn_string(app_config.db_uri)
+
+    # Initialize DB (for search results)
+    await init_db()
 
     async with checkpointer_cm as checkpointer:
-        # For Postgres, we might need to setup the tables first
-        if config.db_provider == "postgres":
+        # For Postgres, we need to setup the tables
+        if app_config.db_provider == "postgres":
             await checkpointer.setup()
             
-        # Compile with an interrupt before the review step
-        graph = workflow.compile(
+        # Create the graph with the checkpointer
+        app = workflow.compile(
             checkpointer=checkpointer, 
             interrupt_before=["review_step"]
         )
         
-        config = {"configurable": {"thread_id": thread_id}}
+        # Generate a thread ID if not provided
+        if not thread_id:
+            thread_id = str(uuid.uuid4())
+        run_config = {"configurable": {"thread_id": thread_id}}
         
         # 1. Start the process (runs Plan -> Generate -> Search -> Pauses at Review)
         console.print(Panel(f"Starting Research (Thread: {thread_id})", title="[bold blue]Deep Research[/bold blue]"))
@@ -76,14 +114,14 @@ async def run_research(query: str, thread_id: str = None):
         }
         
         # Run until the interrupt
-        async for event in graph.astream(initial_state, config=config):
+        async for event in app.astream(initial_state, config=run_config):
             for key, value in event.items():
                 console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
         
         # 2. Review Loop
         while True:
             # Inspect State at Interrupt
-            snapshot = await graph.aget_state(config)
+            snapshot = await app.aget_state(run_config)
             if not snapshot.values:
                 break # Should not happen if paused
                 
@@ -105,10 +143,10 @@ async def run_research(query: str, thread_id: str = None):
                 # No feedback, proceed to report
                 console.print("\n[bold green]--- Proceeding to Final Report ---[/bold green]")
                 # We update state to ensure user_feedback is None (it should be None by default, but to be safe)
-                await graph.aupdate_state(config, {"user_feedback": None})
+                await app.aupdate_state(run_config, {"user_feedback": None})
                 
                 # Resume execution (runs review_step -> write_report)
-                async for event in graph.astream(None, config=config):
+                async for event in app.astream(None, config=run_config):
                     for key, value in event.items():
                         console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
                 break
@@ -116,17 +154,17 @@ async def run_research(query: str, thread_id: str = None):
                 # User provided feedback
                 console.print(f"\n[bold]Generating new queries based on:[/bold] '{feedback}'")
                 # Update state with feedback
-                await graph.aupdate_state(config, {"user_feedback": feedback})
+                await app.aupdate_state(run_config, {"user_feedback": feedback})
                 
                 # Resume execution (runs review_step -> generate_feedback_queries -> perform_search -> Pauses at Review)
-                async for event in graph.astream(None, config=config):
+                async for event in app.astream(None, config=run_config):
                     for key, value in event.items():
                         console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
                 
                 # Loop continues, showing new results...
                 
         # Get final state
-        final_state = await graph.aget_state(config)
+        final_state = await app.aget_state(run_config)
         return final_state.values.get("final_report")
 
 if __name__ == "__main__":

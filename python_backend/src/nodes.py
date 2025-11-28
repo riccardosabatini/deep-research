@@ -1,9 +1,6 @@
 import asyncio
 from typing import List, Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.types import Send
@@ -54,6 +51,7 @@ def get_llm(config: RunnableConfig, model_type: str = "task"):
     provider = configurable.get("provider", env_config.provider).lower()
     
     if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(
             model_name=model_name,
             temperature=0,
@@ -61,12 +59,14 @@ def get_llm(config: RunnableConfig, model_type: str = "task"):
             base_url=base_url if base_url else None
         )
     elif provider == "google" or provider == "google_genai":
+        from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
             model=model_name,
             temperature=0,
             google_api_key=api_key if api_key else None
         )
     elif provider == "groq":
+        from langchain_groq import ChatGroq
         return ChatGroq(
             model_name=model_name,
             temperature=0,
@@ -78,7 +78,8 @@ def get_llm(config: RunnableConfig, model_type: str = "task"):
         model=model_name, 
         temperature=0,
         base_url=base_url if base_url else None,
-        api_key=api_key if api_key else None
+        api_key=api_key if api_key else None,
+        max_retries=10 # Increase default retries for rate limits
     )
 
 async def plan_research(state: DeepResearchState, config: RunnableConfig):
@@ -88,7 +89,7 @@ async def plan_research(state: DeepResearchState, config: RunnableConfig):
     """
     console.print(Panel(f"Planning Research for: {state['query']}", title="[bold blue]Plan Research[/bold blue]"))
     llm = get_llm(config, "thinking")
-    chain = report_plan_prompt | llm | StrOutputParser()
+    chain = (report_plan_prompt | llm | StrOutputParser()).with_retry(stop_after_attempt=5)
     plan = await chain.ainvoke({"query": state["query"]})
     return {"report_plan": plan}
 
@@ -102,7 +103,7 @@ async def generate_queries(state: DeepResearchState, config: RunnableConfig):
     
     # Use the wrapper model
     structured_llm = llm.with_structured_output(DeepResearchQueryList)
-    chain = serp_queries_prompt | structured_llm
+    chain = (serp_queries_prompt | structured_llm).with_retry(stop_after_attempt=5)
     
     result = await chain.ainvoke({"plan": state["report_plan"]})
     return {"serp_queries": result.queries}
@@ -112,8 +113,12 @@ async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
     Node: Executes a single search task and processes the results.
     Uses: Task Model (for processing results)
     """
+    # Get thread_id for scoping results
+    configurable = config.get("configurable", {})
+    thread_id = configurable.get("thread_id", "default")
+    
     # Check cache first
-    cached = await get_search_result(task.query)
+    cached = await get_search_result(thread_id, task.query)
     if cached:
         console.print(f"[dim]Found cached result for: {task.query}[/dim]")
         sources = [SearchResultItem(**s) for s in cached["raw_result"]["sources"]]
@@ -144,7 +149,12 @@ async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
         for i, s in enumerate(sources)
     ])
     
-    chain = process_search_result_prompt | llm | StrOutputParser()
+    # Add retry logic with exponential backoff for rate limits
+    chain = (process_search_result_prompt | llm | StrOutputParser()).with_retry(
+        stop_after_attempt=10,
+        wait_exponential_jitter=True
+    )
+    
     learnings = await chain.ainvoke({
         "query": task.query,
         "researchGoal": task.research_goal,
@@ -153,6 +163,7 @@ async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
     
     # Save to DB
     await save_search_result(
+        research_id=thread_id,
         query=task.query,
         raw_result={"sources": [s.dict() for s in sources], "images": [i.dict() for i in images]},
         learnings=learnings
