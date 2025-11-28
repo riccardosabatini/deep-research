@@ -165,7 +165,7 @@ async def perform_search(task: DeepResearchSearchTask, config: RunnableConfig):
     await save_search_result(
         research_id=thread_id,
         query=task.query,
-        raw_result={"sources": [s.dict() for s in sources], "images": [i.dict() for i in images]},
+        raw_result={"sources": [s.model_dump() for s in sources], "images": [i.model_dump() for i in images]},
         learnings=learnings
     )
     

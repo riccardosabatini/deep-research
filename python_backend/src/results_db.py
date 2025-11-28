@@ -4,11 +4,7 @@ import json
 from typing import Optional, Dict, Any
 from .configuration import Config
 
-import aiosqlite
-import asyncpg
-import json
-from typing import Optional, Dict, Any
-from .configuration import Config
+
 
 async def init_db():
     config = Config.from_env()
@@ -56,7 +52,7 @@ async def get_search_result(research_id: str, query: str) -> Optional[Dict[str, 
                 if row:
                     return {
                         "raw_result": json.loads(row[0]),
-                        "learnings": row[1]
+                        "learnings": json.loads(row[1])
                     }
                     
     elif config.db_provider == "postgres":
@@ -69,7 +65,7 @@ async def get_search_result(research_id: str, query: str) -> Optional[Dict[str, 
             if row:
                 return {
                     "raw_result": json.loads(row["raw_result"]),
-                    "learnings": row["learnings"]
+                    "learnings": json.loads(row["learnings"])
                 }
         finally:
             await conn.close()
@@ -83,7 +79,7 @@ async def save_search_result(research_id: str, query: str, raw_result: Dict[str,
         async with aiosqlite.connect(config.db_uri) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO search_results (research_id, query, raw_result, learnings) VALUES (?, ?, ?, ?)",
-                (research_id, query, json.dumps(raw_result), learnings)
+                (research_id, query, json.dumps(raw_result), json.dumps(learnings))
             )
             await db.commit()
             
@@ -97,7 +93,8 @@ async def save_search_result(research_id: str, query: str, raw_result: Dict[str,
                 ON CONFLICT (research_id, query) DO UPDATE 
                 SET raw_result = $3, learnings = $4
                 """,
-                research_id, query, json.dumps(raw_result), learnings
+                research_id, query, json.dumps(raw_result), json.dumps(learnings)
             )
         finally:
             await conn.close()
+

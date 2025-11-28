@@ -15,3 +15,6 @@ langchain-fireworks
 langgraph-checkpoint-sqlite
 langgraph-checkpoint-postgres
 rich
+pytest
+pytest-asyncio
+pytest-mock
