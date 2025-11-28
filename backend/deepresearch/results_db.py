@@ -21,6 +21,13 @@ async def init_db():
                     PRIMARY KEY (research_id, query)
                 )
             """)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS reports (
+                    research_id TEXT PRIMARY KEY,
+                    report TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             await db.commit()
             
     elif config.db_provider == "postgres":
@@ -34,6 +41,13 @@ async def init_db():
                     learnings TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (research_id, query)
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS reports (
+                    research_id TEXT PRIMARY KEY,
+                    report TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
         finally:
@@ -98,3 +112,56 @@ async def save_search_result(research_id: str, query: str, raw_result: Dict[str,
         finally:
             await conn.close()
 
+async def save_report(research_id: str, report: str):
+    config = Config.from_env()
+    
+    if config.db_provider == "sqlite":
+        async with aiosqlite.connect(config.db_uri) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO reports (research_id, report) VALUES (?, ?)",
+                (research_id, report)
+            )
+            await db.commit()
+            
+    elif config.db_provider == "postgres":
+        conn = await asyncpg.connect(config.db_uri)
+        try:
+            await conn.execute(
+                """
+                INSERT INTO reports (research_id, report) 
+                VALUES ($1, $2) 
+                ON CONFLICT (research_id) DO UPDATE 
+                SET report = $2
+                """,
+                research_id, report
+            )
+        finally:
+            await conn.close()
+
+
+async def get_report(research_id: str) -> Optional[str]:
+    config = Config.from_env()
+    
+    if config.db_provider == "sqlite":
+        async with aiosqlite.connect(config.db_uri) as db:
+            async with db.execute(
+                "SELECT report FROM reports WHERE research_id = ?", 
+                (research_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0]
+                    
+    elif config.db_provider == "postgres":
+        conn = await asyncpg.connect(config.db_uri)
+        try:
+            row = await conn.fetchrow(
+                "SELECT report FROM reports WHERE research_id = $1", 
+                research_id
+            )
+            if row:
+                return row["report"]
+        finally:
+            await conn.close()
+            
+    return None

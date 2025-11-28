@@ -2,7 +2,7 @@ import pytest
 import aiosqlite
 import json
 from unittest.mock import MagicMock
-from deepresearch.results_db import init_db, get_search_result, save_search_result
+from deepresearch.results_db import init_db, get_search_result, save_search_result, save_report, get_report
 from deepresearch.configuration import Config
 
 @pytest.fixture
@@ -10,7 +10,7 @@ def mock_db_config(mocker):
     mock_config = MagicMock(spec=Config)
     mock_config.db_provider = "sqlite"
     mock_config.db_uri = ":memory:"
-    mocker.patch("src.results_db.Config.from_env", return_value=mock_config)
+    mocker.patch("deepresearch.results_db.Config.from_env", return_value=mock_config)
     return mock_config
 
 @pytest.mark.asyncio
@@ -39,7 +39,7 @@ async def test_db_operations(tmp_path, mocker):
     mock_config = MagicMock(spec=Config)
     mock_config.db_provider = "sqlite"
     mock_config.db_uri = db_uri
-    mocker.patch("src.results_db.Config.from_env", return_value=mock_config)
+    mocker.patch("deepresearch.results_db.Config.from_env", return_value=mock_config)
     
     # 1. Init DB
     await init_db()
@@ -71,3 +71,44 @@ async def test_db_operations(tmp_path, mocker):
     # 5. Get Result with different research_id
     result = await get_search_result("other_thread", query)
     assert result is None
+
+@pytest.mark.asyncio
+async def test_report_operations(tmp_path, mocker):
+    # Use a temp file for DB
+    db_path = tmp_path / "test_report.db"
+    db_uri = str(db_path)
+    
+    mock_config = MagicMock(spec=Config)
+    mock_config.db_provider = "sqlite"
+    mock_config.db_uri = db_uri
+    mocker.patch("deepresearch.results_db.Config.from_env", return_value=mock_config)
+    
+    # 1. Init DB
+    await init_db()
+    
+    # Verify table exists
+    async with aiosqlite.connect(db_uri) as db:
+        async with db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='reports';") as cursor:
+            result = await cursor.fetchone()
+            assert result is not None
+            
+    # 2. Save Report
+    research_id = "test_thread_report"
+    report_content = "This is a test report."
+    
+    await save_report(research_id, report_content)
+    
+    # 3. Get Report
+    saved_report = await get_report(research_id)
+    assert saved_report == report_content
+    
+    # 4. Update Report
+    updated_report = "This is an updated report."
+    await save_report(research_id, updated_report)
+    
+    saved_report = await get_report(research_id)
+    assert saved_report == updated_report
+    
+    # 5. Get Non-existent Report
+    saved_report = await get_report("non_existent_thread")
+    assert saved_report is None

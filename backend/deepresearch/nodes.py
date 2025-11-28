@@ -25,14 +25,13 @@ from .prompts import (
 )
 from .tools import SearchTools
 from .configuration import Config
-from .results_db import get_search_result, save_search_result
+from .results_db import get_search_result, save_search_result, save_report
 
 # Initialize
 search_tools = SearchTools()
 console = Console()
 
 def get_llm(config: RunnableConfig, model_type: str = "task"):
-    # ... (keep existing get_llm implementation) ...
     """
     Helper to get the LLM instance based on configuration.
     """
@@ -252,6 +251,18 @@ async def write_report(state: DeepResearchState, config: RunnableConfig):
         "images": images_str
     })
     
+    # Append Sources Section
+    sources_section = "\n\n## Sources\n\n" + "\n".join([
+        f"- [{i+1}] [{s.title}]({s.url})"
+        for i, s in enumerate(all_sources)
+    ])
+    report += sources_section
+    
+    # Save to DB
+    configurable = config.get("configurable", {})
+    thread_id = configurable.get("thread_id", "default")
+    await save_report(thread_id, report)
+    
     return {"final_report": report}
 
 def route_to_search(state: DeepResearchState):
@@ -259,4 +270,3 @@ def route_to_search(state: DeepResearchState):
     Conditional Edge: Routes from generate_queries to perform_search (fan-out).
     """
     return [Send("perform_search", task) for task in state["serp_queries"]]
-
