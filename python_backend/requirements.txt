@@ -1,0 +1,14 @@
+langgraph
+langchain
+langchain-openai
+langchain-core
+pydantic
+tavily-python
+python-dotenv
+asyncpg
+sqlalchemy
+aiosqlite
+langchain-anthropic
+langchain-google-genai
+langchain-groq
+langchain-fireworks
