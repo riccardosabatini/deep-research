@@ -23,6 +23,9 @@ from langgraph.types import Send
 from pydantic import BaseModel
 import json
 import argparse
+from langchain_community.cache import RedisCache
+from langchain_core.globals import set_llm_cache
+from redis import Redis
 
 # Custom JSON serialization for LangGraph
 def custom_encoder(obj):
@@ -85,6 +88,11 @@ async def run_research(query: str, thread_id: str = None):
     
     # Initialize configuration
     app_config = Config.from_env()
+    
+    # Setup LLM Cache
+    if app_config.redis_enabled:
+        console.print(f"[bold blue]Enabling Redis Cache at {app_config.redis_url}[/bold blue]")
+        set_llm_cache(RedisCache(redis_=Redis.from_url(app_config.redis_url)))
     
     # Initialize DB (for search results)
     await init_db()
@@ -183,7 +191,7 @@ async def _run_graph(checkpointer, query: str, thread_id: str):
             # User provided feedback
             console.print(f"\n[bold]Generating new queries based on:[/bold] '{feedback}'")
             # Update state with feedback
-            await app.aupdate_state(run_config, {"user_feedback": feedback})
+            await app.aupdate_state(run_config, {"user_feedback": feedback}, as_node="review_step")
             
             # Resume execution (runs review_step -> generate_feedback_queries -> perform_search -> Pauses at Review)
             async for event in app.astream(None, config=run_config):

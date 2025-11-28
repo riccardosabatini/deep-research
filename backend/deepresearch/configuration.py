@@ -18,6 +18,8 @@ class Config:
     db_provider: str = "sqlite" # sqlite or postgres
     db_uri: str = "sqlite:///search_results.db" # filename for sqlite, connection string for postgres
     max_search_results: int = 5
+    redis_url: str = "redis://localhost:6379"
+    redis_enabled: bool = False
     
     @classmethod
     def from_env(cls):
@@ -29,5 +31,8 @@ class Config:
             api_key=os.getenv("AI_API_KEY", ""),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             db_provider=os.getenv("DB_PROVIDER", "sqlite").lower(),
-            db_uri=os.getenv("DB_URI", "checkpoints.db")
+            db_uri=os.getenv("DB_URI", "checkpoints.db"),
+            max_search_results=int(os.getenv("MAX_SEARCH_RESULTS", "5")),
+            redis_url=os.getenv("REDIS_URL", "redis://localhost:6379"),
+            redis_enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true"
         )
