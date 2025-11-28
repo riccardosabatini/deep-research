@@ -1,0 +1,12 @@
+langgraph>=0.2.0
+langgraph-checkpoint-postgres>=2.0.0
+rich
+pytest
+pytest-asyncio
+pytest-mock
+python-dotenv
+aiosqlite
+asyncpg
+langchain_openai
+langgraph-checkpoint-sqlite
+tavily-python
