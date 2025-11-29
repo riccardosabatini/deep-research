@@ -12,3 +12,4 @@ langgraph-checkpoint-sqlite
 tavily-python
 redis
 langchain-community
+exa-py

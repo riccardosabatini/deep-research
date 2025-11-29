@@ -1,3 +1,4 @@
+import uuid
 from typing import List, Optional, TypedDict, Annotated
 import operator
 from pydantic import BaseModel, Field
@@ -5,6 +6,7 @@ from pydantic import BaseModel, Field
 # --- Data Models ---
 
 class SearchResultItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     url: str
     title: str
     content: str
@@ -45,4 +47,5 @@ class DeepResearchState(TypedDict):
     user_feedback: Optional[str]
     feedback_loop_count: int
     feedback_mode: str # "human" or "auto"
+    report_pages: int
     final_report: str

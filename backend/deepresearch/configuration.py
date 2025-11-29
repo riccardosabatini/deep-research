@@ -22,6 +22,10 @@ class Config:
     redis_enabled: bool = False
     feedback_mode: str = "human"
     max_feedback_loops: int = 3
+    report_pages: int = 5
+    search_provider: str = "tavily"
+    search_api_key: str = ""
+    search_category: str = "research paper"
     
     @classmethod
     def from_env(cls):
@@ -38,5 +42,9 @@ class Config:
             redis_url=os.getenv("REDIS_URL", "redis://localhost:6379"),
             redis_enabled=os.getenv("REDIS_ENABLED", "false").lower() == "true",
             feedback_mode=os.getenv("FEEDBACK_MODE", "human").lower(), # human or auto
-            max_feedback_loops=int(os.getenv("MAX_FEEDBACK_LOOPS", "3"))
+            max_feedback_loops=int(os.getenv("MAX_FEEDBACK_LOOPS", "3")),
+            report_pages=int(os.getenv("REPORT_PAGES", "5")),
+            search_provider=os.getenv("SEARCH_PROVIDER", "tavily").lower(), # tavily or exa
+            search_api_key=os.getenv("SEARCH_API_KEY", ""),
+            search_category=os.getenv("SEARCH_CATEGORY", "research paper")
         )

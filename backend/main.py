@@ -80,7 +80,7 @@ logging.basicConfig(
 
 console = Console()
 
-async def run_research(query: str, thread_id: str = None, feedback_mode: str = "human"):
+async def run_research(query: str, thread_id: str = None, feedback_mode: str = "human", report_pages: int = 5):
     """
     Runs the deep research process with persistence.
     """
@@ -104,15 +104,15 @@ async def run_research(query: str, thread_id: str = None, feedback_mode: str = "
             serde=JsonSerializer()
         ) as checkpointer:
             await checkpointer.setup()
-            return await _run_graph(checkpointer, query, thread_id, feedback_mode)
+            return await _run_graph(checkpointer, query, thread_id, feedback_mode, report_pages)
     else:
         # Default to SQLite
         async with aiosqlite.connect(app_config.db_uri) as conn:
             checkpointer = AsyncSqliteSaver(conn, serde=JsonSerializer())
             await checkpointer.setup()
-            return await _run_graph(checkpointer, query, thread_id, feedback_mode)
+            return await _run_graph(checkpointer, query, thread_id, feedback_mode, report_pages)
 
-async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: str):
+async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: str, report_pages: int):
     # Create the graph with the checkpointer
     app = workflow.compile(
         checkpointer=checkpointer, 
@@ -143,6 +143,7 @@ async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: st
             "user_feedback": None,
             "feedback_loop_count": 0,
             "feedback_mode": feedback_mode,
+            "report_pages": report_pages,
             "final_report": ""
         }
         
@@ -231,6 +232,7 @@ def parse_arguments(args=None):
     parser.add_argument("query", nargs="?", help="The research query (optional if resuming)")
     parser.add_argument("--thread-id", help="Thread ID to resume an existing research session")
     parser.add_argument("--feedback-mode", choices=["human", "auto"], default="human", help="Feedback mode: 'human' for manual review, 'auto' for LLM review")
+    parser.add_argument("--report-pages", type=int, default=5, help="Target number of pages for the final report")
     return parser.parse_args(args)
 
 if __name__ == "__main__":
@@ -248,7 +250,7 @@ if __name__ == "__main__":
             query = f.read().strip()
     
     try:
-        final_report = asyncio.run(run_research(query=query, thread_id=args.thread_id, feedback_mode=args.feedback_mode))
+        final_report = asyncio.run(run_research(query=query, thread_id=args.thread_id, feedback_mode=args.feedback_mode, report_pages=args.report_pages))
         if final_report:
             console.print(Panel(Markdown(final_report), title="[bold green]Final Report[/bold green]"))
         else:

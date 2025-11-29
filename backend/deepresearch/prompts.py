@@ -42,31 +42,32 @@ SERP_QUERIES_INSTRUCTION = """This is the report plan after user confirmation:
 
 Based on previous report plan, generate a list of SERP queries to further research the topic. Make sure each query is unique and not similar to each other."""
 
-PROCESS_SEARCH_RESULT_INSTRUCTION = """Given the following contexts from a SERP search for the query:
+PROCESS_SEARCH_RESULT_INSTRUCTION = """Given the following SERP query:
 <QUERY>
 {query}
 </QUERY>
+
+And the following context from the SERP search:
+<CONTEXT>
+{context}
+</CONTEXT>
 
 You need to organize the searched information according to the following requirements:
 <RESEARCH_GOAL>
 {researchGoal}
 </RESEARCH_GOAL>
 
-The following context from the SERP search:
-<CONTEXT>
-{context}
-</CONTEXT>
-
 You need to think like a human researcher.
 Generate a list of learnings from the contexts.
+**Be very accurate and don't forget any details.**
 Make sure each learning is unique and not similar to each other.
 The learnings should be to the point, as detailed and information dense as possible.
 Make sure to include any entities like people, places, companies, products, things, etc in the learnings, as well as any specific entities, metrics, numbers, and dates when available. The learnings will be used to research the topic further.
 
 Citation Rules:
 - Please cite the context at the end of sentences when appropriate.
-- Please use the format of citation number [number] to reference the context in corresponding parts of your answer.
-- If a sentence comes from multiple contexts, please list all relevant citation numbers, e.g., [1][2]. Remember not to group citations at the end but list them in the corresponding parts of your answer."""
+- Each context entry has a unique id, use the format of citation id [id] to reference the context in corresponding parts of your answer.
+- If a sentence comes from multiple contexts, please list all relevant citation ids, e.g., [id1][id2]. Remember not to group citations at the end but list them in the corresponding parts of your answer."""
 
 FINAL_REPORT_INSTRUCTION = """This is the report plan after user confirmation:
 <PLAN>
@@ -78,31 +79,16 @@ Here are all the learnings from previous research:
 {learnings}
 </LEARNINGS>
 
-Here are all the sources from previous research, if any:
-<SOURCES>
-{sources}
-</SOURCES>
-
-Here are all the images from previous research, if any:
-<IMAGES>
-{images}
-</IMAGES>
-
 Write a final report based on the report plan using the learnings from research.
-Make it as detailed as possible, aim for 5 pages or more, the more the better, include ALL the learnings from research.
+Make it as detailed as possible, aim **at least** for {report_pages} pages, the more the better, include **ALL** the learnings from research.
+Think hard on a logical flow and organization of the report. Divide the report into sections and subsections as needed.
 **Respond only the final report content, and no additional text before or after.**
 
-Image Rules:
-- Images related to the paragraph content at the appropriate location in the article according to the image description.
-- Include images using `![Image Description](image_url)` in a separate section.
-- **Do not add any images at the end of the article.**
-
 Citation Rules:
-- Please cite research references at the end of your paragraphs when appropriate.
-- If the citation is from the reference, please **ignore**. Include only references from sources.
-- Please use the reference format [number], to reference the learnings link in corresponding parts of your answer.
-- If a paragraphs comes from multiple learnings reference link, please list all relevant citation numbers, e.g., [1][2]. Remember not to group citations at the end but list them in the corresponding parts of your answer. Control the number of footnotes.
-- Do not have more than 3 reference link in a paragraph, and keep only the most relevant ones.
+- Learnings have citations at the end of sentences when appropriate.
+- Please report the citations you find in the learnings end of a paragraph when appropriate. Use the same format as the learnings, [id].
+- If a paragraph comes from multiple learnings references, please list all relevant citation ids, e.g., [id1][id2]. Remember not to group citations at the end but list them in the corresponding parts of your answer. Control the number of footnotes.
+- Do not have more than 3 reference links in a paragraph, and keep only the most relevant ones.
 - **Do not add references at the end of the report.**"""
 
 # --- LangChain Templates ---

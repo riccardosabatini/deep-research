@@ -29,3 +29,13 @@ def test_cli_thread_id():
     args = parse_arguments(["--thread-id", "123"])
     assert args.thread_id == "123"
     assert args.query is None
+
+def test_cli_report_pages():
+    """Test report pages argument"""
+    args = parse_arguments(["test query", "--report-pages", "10"])
+    assert args.report_pages == 10
+
+def test_cli_report_pages_default():
+    """Test default report pages"""
+    args = parse_arguments(["test query"])
+    assert args.report_pages == 5

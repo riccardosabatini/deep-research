@@ -91,6 +91,9 @@ async def plan_research(state: DeepResearchState, config: RunnableConfig):
     llm = get_llm(config, "thinking")
     chain = (report_plan_prompt | llm | StrOutputParser()).with_retry(stop_after_attempt=5)
     plan = await chain.ainvoke({"query": state["query"]})
+    
+    console.print(Panel(f"Research Plan Generated: {plan}", title="[bold blue]Research Plan[/bold blue]"))
+
     return {"report_plan": plan}
 
 async def generate_queries(state: DeepResearchState, config: RunnableConfig):
@@ -122,6 +125,7 @@ async def perform_search(task: dict, config: RunnableConfig):
     
     # Check cache first
     cached = await get_search_result(thread_id, task_model.query)
+
     if cached:
         console.print(f"[dim]Found cached result for: {task_model.query}[/dim]")
         sources = [SearchResultItem(**s) for s in cached["raw_result"]["sources"]]
@@ -148,8 +152,8 @@ async def perform_search(task: dict, config: RunnableConfig):
     # 2. Process Results (Synthesize Learnings)
     # Format context for the prompt
     context_str = "\n\n".join([
-        f"<content index=\"{i+1}\" url=\"{s.url}\">\n{s.content}\n</content>"
-        for i, s in enumerate(sources)
+        f"<content id=\"{s.id}\" url=\"{s.url}\">\n{s.content}\n</content>"
+        for s in sources
     ])
     
     # Add retry logic with exponential backoff for rate limits
@@ -262,28 +266,49 @@ async def write_report(state: DeepResearchState, config: RunnableConfig):
     # Format for prompt
     learnings_str = "\n".join(all_learnings)
     
-    sources_str = "\n".join([
-        f"<source index=\"{i+1}\" url=\"{s.url}\">\n{s.title}\n</source>"
-        for i, s in enumerate(all_sources)
-    ])
+    # sources_str = "\n".join([
+    #     f"<source id=\"{s.id}\" url=\"{s.url}\">\n{s.title}\n</source>"
+    #     for s in all_sources
+    # ])
     
-    images_str = "\n".join([
-        f"{i+1}. ![{img.description}]({img.url})"
-        for i, img in enumerate(all_images)
-    ])
+    # images_str = "\n".join([
+    #     f"{i+1}. ![{img.description}]({img.url})"
+    #     for i, img in enumerate(all_images)
+    # ])
     
     chain = final_report_prompt | llm | StrOutputParser()
+    report_pages = state.get("report_pages", Config.from_env().report_pages)
     report = await chain.ainvoke({
         "plan": state["report_plan"],
         "learnings": learnings_str,
-        "sources": sources_str,
-        "images": images_str
+        "report_pages": report_pages
     })
+    
+    import re
+    import uuid
+
+    source_dict = {s.id: s for s in all_sources}
+    
+    # Extract all the [uuid4] present in the report, in the order of appearance making sure only uuid4 are picked up
+    raw_uuids = re.findall(r'\[(.*?)\]', report)
+    uuids = []
+    for uid_str in raw_uuids:
+        try:
+            # Validate if it's a valid UUID4
+            if uuid.UUID(uid_str, version=4):
+                uuids.append(uid_str)
+        except ValueError:
+            # Not a valid UUID, skip
+            pass
+    
+    # Replace all the [uuid4] with the location of the uuid in the uuids list
+    for i, uuid in enumerate(uuids):
+        report = report.replace(f'[{uuid}]', f'[{i+1}]')
     
     # Append Sources Section
     sources_section = "\n\n## Sources\n\n" + "\n".join([
-        f"- [{i+1}] [{s.title}]({s.url})"
-        for i, s in enumerate(all_sources)
+        f"- [{i+1}] [{source_dict[uuid].title}]({source_dict[uuid].url})"
+        for i, uuid in enumerate(uuids)
     ])
     report += sources_section
     
