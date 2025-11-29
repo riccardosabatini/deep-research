@@ -31,7 +31,7 @@ class SearchTools:
     def _cache_key(self, query: str) -> str:
         return f"{self.config.search_provider}:{query}"
     
-    async def perform_search(self, query: str) -> Dict[str, List[Any]]:
+    async def perform_search(self, query: str, max_results: int = None) -> Dict[str, List[Any]]:
         """
         Executes a search using the configured provider and returns structured results.
         """
@@ -51,11 +51,13 @@ class SearchTools:
             sources = []
             images = []
             
+            limit = max_results if max_results else self.config.max_search_results
+            
             if self.config.search_provider == "tavily":
                 response = self.client.search(
                     query=query,
                     search_depth="advanced",
-                    max_results=self.config.max_search_results,
+                    max_results=limit,
                     include_images=True,
                     include_raw_content=True
                 )
@@ -80,7 +82,7 @@ class SearchTools:
                     query,
                     category=self.config.search_category,
                     context=True,
-                    num_results=self.config.max_search_results,
+                    num_results=limit,
                     text=True,
                     type="deep"
                 )

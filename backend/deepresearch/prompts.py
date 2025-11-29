@@ -47,27 +47,27 @@ PROCESS_SEARCH_RESULT_INSTRUCTION = """Given the following SERP query:
 {query}
 </QUERY>
 
-And the following context from the SERP search:
+This is the full context resulting from the SERP search, organized in blocks of contents
 <CONTEXT>
 {context}
 </CONTEXT>
 
-You need to organize the searched information according to the following requirements:
+Your goal is to organize the searched information according to the following requirements:
 <RESEARCH_GOAL>
 {researchGoal}
 </RESEARCH_GOAL>
 
 You need to think like a human researcher.
-Generate a list of learnings from the contexts.
+Generate a list of learnings from the context.
 **Be very accurate and don't forget any details.**
 Make sure each learning is unique and not similar to each other.
 The learnings should be to the point, as detailed and information dense as possible.
 Make sure to include any entities like people, places, companies, products, things, etc in the learnings, as well as any specific entities, metrics, numbers, and dates when available. The learnings will be used to research the topic further.
 
 Citation Rules:
-- Please cite the context at the end of sentences when appropriate.
-- Each context entry has a unique id, use the format of citation id [id] to reference the context in corresponding parts of your answer.
-- If a sentence comes from multiple contexts, please list all relevant citation ids, e.g., [id1][id2]. Remember not to group citations at the end but list them in the corresponding parts of your answer."""
+- When appropriate please cite the specific content used at the end of sentences.
+- Each content entry has a unique id, to reference the content in corresponding parts of your answer write the id in the format [id].
+- If a sentence comes from more than one content, please list all relevant content ids, e.g., [id1][id2]. Remember not to group citations at the end but list them in the corresponding parts of your answer."""
 
 FINAL_REPORT_INSTRUCTION = """This is the report plan after user confirmation:
 <PLAN>

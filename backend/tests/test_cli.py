@@ -39,3 +39,13 @@ def test_cli_report_pages_default():
     """Test default report pages"""
     args = parse_arguments(["test query"])
     assert args.report_pages == 5
+
+def test_cli_max_search_results():
+    """Test max search results argument"""
+    args = parse_arguments(["test query", "--max-search-results", "10"])
+    assert args.max_search_results == 10
+
+def test_cli_max_search_results_default():
+    """Test default max search results"""
+    args = parse_arguments(["test query"])
+    assert args.max_search_results == 5

@@ -2,11 +2,12 @@ import uuid
 from typing import List, Optional, TypedDict, Annotated
 import operator
 from pydantic import BaseModel, Field
+import shortuuid
 
 # --- Data Models ---
 
 class SearchResultItem(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: shortuuid.ShortUUID().random(length=8))
     url: str
     title: str
     content: str
@@ -18,6 +19,7 @@ class ImageSource(BaseModel):
 class DeepResearchSearchTask(BaseModel):
     query: str
     research_goal: str = Field(..., description="The specific goal of this search query")
+    max_search_results: Optional[int] = None
 
 class DeepResearchQueryList(BaseModel):
     queries: List[DeepResearchSearchTask]
@@ -48,4 +50,5 @@ class DeepResearchState(TypedDict):
     feedback_loop_count: int
     feedback_mode: str # "human" or "auto"
     report_pages: int
+    max_search_results: int
     final_report: str

@@ -47,3 +47,25 @@ next-env.d.ts
 # Serwist
 public/sw*
 public/swe-worker*
+backend/__pycache__/main.cpython-313.pyc
+backend/debug_prompts/process_search_result_prompt_0ff5b0c5963a40458c9b4a4ff871f410.txt
+backend/debug_prompts/process_search_result_prompt_8b7de527f37944cd9edd6ed069c3cd57.txt
+backend/debug_prompts/process_search_result_prompt_822abb962a414262a64985c7122e03f3.txt
+backend/debug_prompts/process_search_result_prompt_bad9df4842784287a4c73d98cf6ab2c4.txt
+backend/debug_prompts/process_search_result_prompt_c345cab32de143bebfab7747a2d0793e.txt
+backend/debug_prompts/process_search_result_prompt_cf278cb351c245eda1ed83f3552d0dc7.txt
+backend/debug_prompts/process_search_result_prompt_df4c78eb4a5a4555b5478e274b216012.txt
+backend/debug_prompts/process_search_result_prompt_e20a83f6839145c8a7daeb1412791692.txt
+backend/deepresearch/__pycache__/__init__.cpython-311.pyc
+backend/deepresearch/__pycache__/__init__.cpython-313.pyc
+backend/deepresearch/__pycache__/configuration.cpython-311.pyc
+backend/deepresearch/__pycache__/configuration.cpython-313.pyc
+backend/deepresearch/__pycache__/models.cpython-311.pyc
+backend/deepresearch/__pycache__/models.cpython-313.pyc
+backend/deepresearch/__pycache__/nodes.cpython-311.pyc
+backend/deepresearch/__pycache__/nodes.cpython-313.pyc
+backend/deepresearch/__pycache__/prompts.cpython-311.pyc
+backend/deepresearch/__pycache__/prompts.cpython-313.pyc
+backend/deepresearch/__pycache__/results_db.cpython-311.pyc
+backend/deepresearch/__pycache__/tools.cpython-311.pyc
+backend/deepresearch/__pycache__/tools.cpython-313.pyc

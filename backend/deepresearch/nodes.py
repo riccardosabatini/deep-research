@@ -4,6 +4,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.types import Send
+import re
+import uuid
 
 from rich.console import Console
 from rich.panel import Panel
@@ -145,7 +147,7 @@ async def perform_search(task: dict, config: RunnableConfig):
     llm = get_llm(config, "task")
     
     # 1. Execute Search
-    search_data = await search_tools.perform_search(task_model.query)
+    search_data = await search_tools.perform_search(task_model.query, max_results=task_model.max_search_results)
     sources: List[SearchResultItem] = search_data["sources"]
     images: List[ImageSource] = search_data["images"]
     
@@ -161,7 +163,23 @@ async def perform_search(task: dict, config: RunnableConfig):
         stop_after_attempt=10,
         wait_exponential_jitter=True
     )
+
+    # # print the prompt
+    # import uuid
+    # import pathlib
+
+    # output_dir = pathlib.Path("debug_prompts")
+    # output_dir.mkdir(exist_ok=True)
+    # file_name = output_dir / f"process_search_result_prompt_{uuid.uuid4().hex}.txt"
     
+    # with open(file_name, "w", encoding="utf-8") as f:
+    #     f.write(process_search_result_prompt.format(
+    #         query=task_model.query,
+    #         researchGoal=task_model.research_goal,
+    #         context=context_str
+    #     ))
+    # console.print(f"[dim]Prompt written to {file_name}[/dim]")
+
     learnings = await chain.ainvoke({
         "query": task_model.query,
         "researchGoal": task_model.research_goal,
@@ -284,32 +302,32 @@ async def write_report(state: DeepResearchState, config: RunnableConfig):
         "report_pages": report_pages
     })
     
-    import re
-    import uuid
-
     source_dict = {s.id: s for s in all_sources}
     
     # Extract all the [uuid4] present in the report, in the order of appearance making sure only uuid4 are picked up
-    raw_uuids = re.findall(r'\[(.*?)\]', report)
-    uuids = []
-    for uid_str in raw_uuids:
-        try:
-            # Validate if it's a valid UUID4
-            if uuid.UUID(uid_str, version=4):
-                uuids.append(uid_str)
-        except ValueError:
-            # Not a valid UUID, skip
-            pass
+    source_ids = list(set(re.findall(r'\[([a-zA-Z0-9]{8})\]', report)))
     
     # Replace all the [uuid4] with the location of the uuid in the uuids list
-    for i, uuid in enumerate(uuids):
-        report = report.replace(f'[{uuid}]', f'[{i+1}]')
+    final_sources_list = []
+    current_source_idx = 0
     
-    # Append Sources Section
-    sources_section = "\n\n## Sources\n\n" + "\n".join([
-        f"- [{i+1}] [{source_dict[uuid].title}]({source_dict[uuid].url})"
-        for i, uuid in enumerate(uuids)
-    ])
+    # Iterate through unique source IDs found in the report
+    for source_id in source_ids:
+        if source_id in source_dict:
+            current_source_idx += 1
+            numbered_ref = f"[{current_source_idx}]"
+            report = report.replace(f'[{source_id}]', numbered_ref)
+            
+            source_item = source_dict[source_id]
+            final_sources_list.append(f"- {numbered_ref} [{source_item.title}]({source_item.url})")
+        else:
+            # If the ID is not in source_dict, remove the reference from the report
+            report = report.replace(f'[{source_id}]', "")
+    
+    # Append Sources Section if there are any valid sources
+    sources_section = ""
+    if final_sources_list:
+        sources_section = "\n\n## Sources\n\n" + "\n".join(final_sources_list)
     report += sources_section
     
     # Save to DB
@@ -323,4 +341,10 @@ def route_to_search(state: DeepResearchState):
     """
     Conditional Edge: Routes from generate_queries to perform_search (fan-out).
     """
-    return [Send("perform_search", task) for task in state["serp_queries"]]
+    tasks = []
+    for task in state["serp_queries"]:
+        # task is a dict (model_dump of DeepResearchSearchTask)
+        # We need to inject max_search_results from the global state
+        task["max_search_results"] = state.get("max_search_results")
+        tasks.append(Send("perform_search", task))
+    return tasks
