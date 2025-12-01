@@ -1,12 +1,12 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from deepresearch.nodes import plan_research, generate_queries, perform_search, write_report
-from deepresearch.models import DeepResearchState, DeepResearchSearchTask, DeepResearchQueryList, DeepResearchSearchResult
+from deepresearch.interactive.nodes import plan_research, generate_queries, perform_search, write_report
+from deepresearch.interactive.models import DeepResearchState, DeepResearchSearchTask, DeepResearchQueryList, DeepResearchSearchResult
 
 @pytest.mark.asyncio
 async def test_plan_research(mock_llm, mock_config, mocker):
     # Mock get_llm to return our mock_llm
-    mocker.patch("src.nodes.get_llm", return_value=mock_llm)
+    mocker.patch("deepresearch.interactive.nodes.get_llm", return_value=mock_llm)
     
     state = {"query": "Test Query"}
     result = await plan_research(state, mock_config)
@@ -17,7 +17,7 @@ async def test_plan_research(mock_llm, mock_config, mocker):
 
 @pytest.mark.asyncio
 async def test_generate_queries(mock_llm, mock_config, mocker):
-    mocker.patch("src.nodes.get_llm", return_value=mock_llm)
+    mocker.patch("deepresearch.interactive.nodes.get_llm", return_value=mock_llm)
     
     # Setup mock for structured output
     mock_queries = DeepResearchQueryList(queries=[
@@ -35,14 +35,14 @@ async def test_generate_queries(mock_llm, mock_config, mocker):
 
 @pytest.mark.asyncio
 async def test_perform_search(mock_llm, mock_search_tools, mock_config, mocker):
-    mocker.patch("src.nodes.get_llm", return_value=mock_llm)
-    mocker.patch("src.nodes.search_tools", mock_search_tools)
+    mocker.patch("deepresearch.interactive.nodes.get_llm", return_value=mock_llm)
+    mocker.patch("deepresearch.interactive.nodes.search_tools", mock_search_tools)
     
     # Mock DB functions
-    mocker.patch("src.nodes.get_search_result", return_value=None) # Cache miss
-    mocker.patch("src.nodes.save_search_result", new_callable=AsyncMock)
+    mocker.patch("deepresearch.interactive.nodes.get_search_result", return_value=None) # Cache miss
+    mocker.patch("deepresearch.interactive.nodes.save_search_result", new_callable=AsyncMock)
     
-    task = {"query": "Test Search", "research_goal": "Test Goal"}
+    task = {"query": "Test Search", "research_goal": "Test Goal", "prompt_set": "default"}
     result = await perform_search(task, mock_config)
     
     assert "search_results" in result
@@ -52,11 +52,11 @@ async def test_perform_search(mock_llm, mock_search_tools, mock_config, mocker):
     assert len(search_res["sources"]) == 2
     assert len(search_res["images"]) == 1
     
-    mock_search_tools.perform_search.assert_called_once_with("Test Search")
+    mock_search_tools.perform_search.assert_called_once_with("Test Search", max_results=None)
 
 @pytest.mark.asyncio
 async def test_write_report(mock_llm, mock_config, mocker):
-    mocker.patch("src.nodes.get_llm", return_value=mock_llm)
+    mocker.patch("deepresearch.interactive.nodes.get_llm", return_value=mock_llm)
     
     state = {
         "report_plan": "Test Plan",

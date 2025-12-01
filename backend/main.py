@@ -10,7 +10,8 @@ load_dotenv()
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from deepresearch.graph import workflow
+from deepresearch.interactive.graph import workflow as interactive_workflow
+from deepresearch.agentic.graph import deep_researcher_builder as agentic_workflow
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -18,11 +19,12 @@ from deepresearch.results_db import init_db
 from rich.logging import RichHandler
 import logging
 from deepresearch.configuration import Config
-from deepresearch.models import DeepResearchState
-from langgraph.types import Send
+from deepresearch.interactive.models import DeepResearchState
+from langgraph.types import Send, Command
 from pydantic import BaseModel
 import json
 import argparse
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_community.cache import RedisCache
 from langchain_core.globals import set_llm_cache
 from redis import Redis
@@ -80,7 +82,7 @@ logging.basicConfig(
 
 console = Console()
 
-async def run_research(query: str, thread_id: str = None, feedback_mode: str = "human", report_pages: int = 5, max_search_results: int = 5):
+async def run_research(query: str, thread_id: str = None, feedback_mode: str = "human", report_pages: int = 5, max_search_results: int = 5, prompt_set: str = "default", modality: str = "interactive"):
     """
     Runs the deep research process with persistence.
     """
@@ -104,19 +106,25 @@ async def run_research(query: str, thread_id: str = None, feedback_mode: str = "
             serde=JsonSerializer()
         ) as checkpointer:
             await checkpointer.setup()
-            return await _run_graph(checkpointer, query, thread_id, feedback_mode, report_pages, max_search_results)
+            return await _run_graph(checkpointer, query, thread_id, feedback_mode, report_pages, max_search_results, prompt_set, modality)
     else:
         # Default to SQLite
         async with aiosqlite.connect(app_config.db_uri) as conn:
             checkpointer = AsyncSqliteSaver(conn, serde=JsonSerializer())
             await checkpointer.setup()
-            return await _run_graph(checkpointer, query, thread_id, feedback_mode, report_pages, max_search_results)
+            return await _run_graph(checkpointer, query, thread_id, feedback_mode, report_pages, max_search_results, prompt_set, modality)
 
-async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: str, report_pages: int, max_search_results: int):
+async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: str, report_pages: int, max_search_results: int, prompt_set: str, modality: str):
+    # Select workflow based on modality
+    if modality == "agentic":
+        workflow_to_use = agentic_workflow
+    else:
+        workflow_to_use = interactive_workflow
+
     # Create the graph with the checkpointer
-    app = workflow.compile(
+    app = workflow_to_use.compile(
         checkpointer=checkpointer, 
-        interrupt_before=["review_step"]
+        interrupt_before=["review_step"] if modality == "interactive" else [] # Agentic might not have review_step
     )
     
     # Generate a thread ID if not provided
@@ -135,18 +143,33 @@ async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: st
             raise ValueError("Query is required for a new research session.")
             
         console.print(f"[bold green]Starting new research session...[/bold green]")
-        initial_state = {
-            "query": query,
-            "report_plan": "",
-            "serp_queries": [],
-            "search_results": [],
-            "user_feedback": None,
-            "feedback_loop_count": 0,
-            "feedback_mode": feedback_mode,
-            "report_pages": report_pages,
-            "max_search_results": max_search_results,
-            "final_report": ""
-        }
+        
+        if modality == "interactive":
+
+            initial_state = {
+                    "query": query,
+                    "report_plan": "",
+                    "serp_queries": [],
+                    "search_results": [],
+                    "user_feedback": None,
+                    "feedback_loop_count": 0,
+                "feedback_mode": feedback_mode,
+                "report_pages": report_pages,
+                "max_search_results": max_search_results,
+                "prompt_set": prompt_set,
+                "final_report": ""
+            }
+        
+        elif modality == "agentic":
+             # Agentic state might be different, but let's assume it can handle the extra keys or we filter them
+             # Agentic uses AgentInputState which is just messages.
+             # Wait, AgentInputState is MessagesState.
+             # We need to adapt the input for agentic.
+             from langchain_core.messages import HumanMessage
+
+             initial_state = {
+                 "messages": [HumanMessage(content=query)]
+             }
         
         # Run until the interrupt
         async for event in app.astream(initial_state, config=run_config):
@@ -155,7 +178,59 @@ async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: st
     else:
         console.print(f"[bold yellow]Resuming existing research session...[/bold yellow]")
 
-    # 2. Review Loop
+    # Get final state
+    final_state = await app.aget_state(run_config)
+    
+    # Agentic Loop for Clarification
+    if modality == "agentic":
+        while True:
+            final_state = await app.aget_state(run_config)
+            
+            if not final_state.values:
+                break
+                
+            # Check for final report
+            if "final_report" in final_state.values and final_state.values["final_report"]:
+                return final_state.values["final_report"]
+            
+            # Check if clarification is needed (Last message is AI and we are at END)
+            messages = final_state.values.get("messages", [])
+            if messages:
+                last_msg = messages[-1]
+                is_ai_message = False
+                content = ""
+                
+                if isinstance(last_msg, AIMessage):
+                    is_ai_message = True
+                    content = last_msg.content
+                elif isinstance(last_msg, dict) and last_msg.get("type") == "ai":
+                    is_ai_message = True
+                    content = last_msg.get("content", "")
+                
+                if is_ai_message:
+                    console.print(Panel(f"[bold yellow]Agent:[/bold yellow] {content}", title="Clarification Needed"))
+                    
+                    feedback = input("Your answer (or Press Enter to skip/finish): ")
+                    
+                    if not feedback.strip():
+                        console.print("[bold red]No input provided. Exiting.[/bold red]")
+                        break
+                    
+                    # Resume with user input
+                    console.print(f"[bold green]Resuming with:[/bold green] {feedback}")
+                    
+                    # Resume execution with new message
+                    async for event in app.astream({"messages": [HumanMessage(content=feedback)]}, config=run_config):
+                        for key, value in event.items():
+                            console.print(f"--- Step Completed: [bold cyan]{key}[/bold cyan] ---")
+                else:
+                    break
+            else:
+                break
+                
+        return final_state.values.get("final_report")
+
+    # Interactive Review Loop
     while True:
         # Inspect State at Interrupt
         snapshot = await app.aget_state(run_config)
@@ -168,6 +243,7 @@ async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: st
 
         current_results = snapshot.values.get("search_results", [])
         console.print(f"\n[bold yellow]=== Search Results ({len(current_results)} items) ===[/bold yellow]")
+        
         for i, res in enumerate(current_results):
             # res is now a dict
             console.print(f"\n[bold]Result {i+1}:[/bold] {res['query']}")
@@ -177,21 +253,9 @@ async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: st
             
         # 3. Human-in-the-Loop: Ask for feedback
         # Only ask for feedback if we are in human mode AND at the review_step
-        # If we are in auto mode, the graph shouldn't have interrupted unless it finished or hit a limit?
-        # Actually, interrupt_before=["review_step"] is set globally.
-        # But in Auto mode, we don't go to review_step unless we want to stop?
-        # Wait, the graph logic says:
-        # if auto: analyze_research_gaps -> ...
-        # if human: review_step
-        
-        # So if we are in auto mode, we should NOT be hitting this loop unless the graph finished.
-        # BUT, if we are resuming, we might be in a state.
         
         # If the graph finished, astream returns.
         # If the graph interrupted, we are here.
-        
-        # If we are in auto mode, we shouldn't have interrupted at review_step because we don't go there.
-        # So if we are here, it means we are either done or in human mode.
         
         # Let's check if there are tasks to run.
         if not snapshot.next:
@@ -230,15 +294,17 @@ async def _run_graph(checkpointer, query: str, thread_id: str, feedback_mode: st
 
 def parse_arguments(args=None):
     parser = argparse.ArgumentParser(description="Deep Research Assistant")
-    parser.add_argument("query", nargs="?", help="The research query (optional if resuming)")
+    parser.add_argument("--query", help="The research query or path to a file containing the query")
     parser.add_argument("--thread-id", help="Thread ID to resume an existing research session")
     parser.add_argument("--feedback-mode", choices=["human", "auto"], default="human", help="Feedback mode: 'human' for manual review, 'auto' for LLM review")
     parser.add_argument("--report-pages", type=int, default=5, help="Target number of pages for the final report")
     parser.add_argument("--max-search-results", type=int, default=5, help="Max search results per query")
-    return parser.parse_args(args)
+    parser.add_argument("--prompt-set", default="default", help="Prompt set to use (default: 'default')")
+    parser.add_argument("--modality", choices=["interactive", "agentic"], default="interactive", help="Research modality: 'interactive' or 'agentic'")
+    return parser.parse_args(args), parser
 
 if __name__ == "__main__":
-    args = parse_arguments()
+    args, parser = parse_arguments()
     
     if not args.query and not args.thread_id:
         parser.print_help()
@@ -252,7 +318,7 @@ if __name__ == "__main__":
             query = f.read().strip()
     
     try:
-        final_report = asyncio.run(run_research(query=query, thread_id=args.thread_id, feedback_mode=args.feedback_mode, report_pages=args.report_pages, max_search_results=args.max_search_results))
+        final_report = asyncio.run(run_research(query=query, thread_id=args.thread_id, feedback_mode=args.feedback_mode, report_pages=args.report_pages, max_search_results=args.max_search_results, prompt_set=args.prompt_set, modality=args.modality))
         if final_report:
             console.print(Panel(Markdown(final_report), title="[bold green]Final Report[/bold green]"))
         else:

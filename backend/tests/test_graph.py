@@ -2,16 +2,16 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage
-from deepresearch.graph import workflow
-from deepresearch.models import DeepResearchState, DeepResearchSearchTask, DeepResearchQueryList, DeepResearchSearchResult
+from deepresearch.interactive.graph import workflow
+from deepresearch.interactive.models import DeepResearchState, DeepResearchSearchTask, DeepResearchQueryList, DeepResearchSearchResult
 
 @pytest.mark.asyncio
 async def test_graph_execution(mock_llm, mock_search_tools, mock_config, mocker):
     # ... (keep mocks) ...
-    mocker.patch("src.nodes.get_llm", return_value=mock_llm)
-    mocker.patch("src.nodes.search_tools", mock_search_tools)
-    mocker.patch("src.nodes.get_search_result", return_value=None)
-    mocker.patch("src.nodes.save_search_result", new_callable=AsyncMock)
+    mocker.patch("deepresearch.interactive.nodes.get_llm", return_value=mock_llm)
+    mocker.patch("deepresearch.interactive.nodes.search_tools", mock_search_tools)
+    mocker.patch("deepresearch.interactive.nodes.get_search_result", return_value=None)
+    mocker.patch("deepresearch.interactive.nodes.save_search_result", new_callable=AsyncMock)
     
     # Setup mock responses
     mock_plan = AIMessage(content="Mocked Plan")

@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END, START
 from .models import DeepResearchState
-from .configuration import Config
+from ..configuration import Config
 from .nodes import (
     plan_research, 
     generate_queries, 

@@ -26,6 +26,7 @@ class Config:
     search_provider: str = "tavily"
     search_api_key: str = ""
     search_category: str = "research paper"
+    prompt_set: str = "default"
     
     @classmethod
     def from_env(cls):
@@ -45,6 +46,7 @@ class Config:
             max_feedback_loops=int(os.getenv("MAX_FEEDBACK_LOOPS", "3")),
             report_pages=int(os.getenv("REPORT_PAGES", "5")),
             search_provider=os.getenv("SEARCH_PROVIDER", "tavily").lower(), # tavily or exa
-            search_api_key=os.getenv("SEARCH_API_KEY", ""),
-            search_category=os.getenv("SEARCH_CATEGORY", "research paper")
+            search_api_key=os.getenv("SEARCH_API_KEY"),
+            search_category=os.getenv("SEARCH_CATEGORY", "research paper"),
+            prompt_set=os.getenv("PROMPT_SET", "default")
         )

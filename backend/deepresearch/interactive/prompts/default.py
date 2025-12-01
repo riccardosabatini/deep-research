@@ -81,6 +81,7 @@ Here are all the learnings from previous research:
 
 Write a final report based on the report plan using the learnings from research.
 Make it as detailed as possible, aim **at least** for {report_pages} pages, the more the better, include **ALL** the learnings from research.
+The report should be descriptive, paragraph 
 Think hard on a logical flow and organization of the report. Divide the report into sections and subsections as needed.
 **Respond only the final report content, and no additional text before or after.**
 

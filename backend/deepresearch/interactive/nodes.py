@@ -1,6 +1,5 @@
 import asyncio
 from typing import List, Dict, Any
-from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.types import Send
@@ -18,71 +17,18 @@ from .models import (
     SearchResultItem,
     ImageSource
 )
-from .prompts import (
-    report_plan_prompt, 
-    serp_queries_prompt,
-    process_search_result_prompt, 
-    final_report_prompt,
-    review_prompt,
-    auto_feedback_prompt
-)
-from .tools import SearchTools
-from .configuration import Config
-from .results_db import get_search_result, save_search_result, save_report
+from .prompts import get_prompts
+from ..tools import SearchTools
+from ..configuration import Config
+from ..configuration import Config
+from ..results_db import get_search_result, save_search_result, save_report
+from ..llm import get_llm
 
 # Initialize
 search_tools = SearchTools()
 console = Console()
 
-def get_llm(config: RunnableConfig, model_type: str = "task"):
-    """
-    Helper to get the LLM instance based on configuration.
-    """
-    # Load config from configurable or env
-    configurable = config.get("configurable", {}) if config else {}
-    env_config = Config.from_env()
-    
-    # Check if we passed a full Config object or just individual keys
-    if model_type == "thinking":
-        model_name = configurable.get("thinking_model", env_config.thinking_model)
-    else:
-        model_name = configurable.get("task_model", env_config.task_model)
-        
-    base_url = configurable.get("base_url", env_config.base_url)
-    api_key = configurable.get("api_key", env_config.api_key)
-    provider = configurable.get("provider", env_config.provider).lower()
-    
-    if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(
-            model_name=model_name,
-            temperature=0,
-            api_key=api_key if api_key else None,
-            base_url=base_url if base_url else None
-        )
-    elif provider == "google" or provider == "google_genai":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(
-            model=model_name,
-            temperature=0,
-            google_api_key=api_key if api_key else None
-        )
-    elif provider == "groq":
-        from langchain_groq import ChatGroq
-        return ChatGroq(
-            model_name=model_name,
-            temperature=0,
-            api_key=api_key if api_key else None
-        )
-    
-    # Default to OpenAI (works for DeepSeek, OpenRouter, etc. via base_url)
-    return ChatOpenAI(
-        model=model_name, 
-        temperature=0,
-        base_url=base_url if base_url else None,
-        api_key=api_key if api_key else None,
-        max_retries=10 # Increase default retries for rate limits
-    )
+
 
 async def plan_research(state: DeepResearchState, config: RunnableConfig):
     """
@@ -91,7 +37,9 @@ async def plan_research(state: DeepResearchState, config: RunnableConfig):
     """
     console.print(Panel(f"Planning Research for: {state['query']}", title="[bold blue]Plan Research[/bold blue]"))
     llm = get_llm(config, "thinking")
-    chain = (report_plan_prompt | llm | StrOutputParser()).with_retry(stop_after_attempt=5)
+    prompts = get_prompts(state.get("prompt_set", "default"))
+    
+    chain = (prompts.report_plan_prompt | llm | StrOutputParser()).with_retry(stop_after_attempt=5)
     plan = await chain.ainvoke({"query": state["query"]})
     
     console.print(Panel(f"Research Plan Generated: {plan}", title="[bold blue]Research Plan[/bold blue]"))
@@ -105,10 +53,11 @@ async def generate_queries(state: DeepResearchState, config: RunnableConfig):
     """
     console.print(Panel("Generating Queries...", title="[bold blue]Generate Queries[/bold blue]"))
     llm = get_llm(config, "thinking")
+    prompts = get_prompts(state.get("prompt_set", "default"))
     
     # Use the wrapper model
     structured_llm = llm.with_structured_output(DeepResearchQueryList)
-    chain = (serp_queries_prompt | structured_llm).with_retry(stop_after_attempt=5)
+    chain = (prompts.serp_queries_prompt | structured_llm).with_retry(stop_after_attempt=5)
     
     result = await chain.ainvoke({"plan": state["report_plan"]})
     return {"serp_queries": [q.model_dump() for q in result.queries]}
@@ -121,6 +70,9 @@ async def perform_search(task: dict, config: RunnableConfig):
     # Get thread_id for scoping results
     configurable = config.get("configurable", {})
     thread_id = configurable.get("thread_id", "default")
+    
+    # Extract prompt_set from task dict (injected in route_to_search)
+    prompt_set = task.pop("prompt_set", "default")
     
     # Convert dict to model
     task_model = DeepResearchSearchTask(**task)
@@ -159,7 +111,9 @@ async def perform_search(task: dict, config: RunnableConfig):
     ])
     
     # Add retry logic with exponential backoff for rate limits
-    chain = (process_search_result_prompt | llm | StrOutputParser()).with_retry(
+    # Add retry logic with exponential backoff for rate limits
+    prompts = get_prompts(prompt_set)
+    chain = (prompts.process_search_result_prompt | llm | StrOutputParser()).with_retry(
         stop_after_attempt=10,
         wait_exponential_jitter=True
     )
@@ -221,7 +175,8 @@ async def generate_feedback_queries(state: DeepResearchState, config: RunnableCo
     learnings_str = "\n".join(all_learnings)
     
     structured_llm = llm.with_structured_output(DeepResearchQueryList)
-    chain = review_prompt | structured_llm
+    prompts = get_prompts(state.get("prompt_set", "default"))
+    chain = prompts.review_prompt | structured_llm
     
     result = await chain.ainvoke({
         "plan": state["report_plan"],
@@ -248,7 +203,8 @@ async def analyze_research_gaps(state: DeepResearchState, config: RunnableConfig
         all_learnings.extend(result["learnings"])
     learnings_str = "\n".join(all_learnings)
     
-    chain = auto_feedback_prompt | llm | StrOutputParser()
+    prompts = get_prompts(state.get("prompt_set", "default"))
+    chain = prompts.auto_feedback_prompt | llm | StrOutputParser()
     
     feedback = await chain.ainvoke({
         "plan": state["report_plan"],
@@ -294,7 +250,8 @@ async def write_report(state: DeepResearchState, config: RunnableConfig):
     #     for i, img in enumerate(all_images)
     # ])
     
-    chain = final_report_prompt | llm | StrOutputParser()
+    prompts = get_prompts(state.get("prompt_set", "default"))
+    chain = prompts.final_report_prompt | llm | StrOutputParser()
     report_pages = state.get("report_pages", Config.from_env().report_pages)
     report = await chain.ainvoke({
         "plan": state["report_plan"],
@@ -346,5 +303,6 @@ def route_to_search(state: DeepResearchState):
         # task is a dict (model_dump of DeepResearchSearchTask)
         # We need to inject max_search_results from the global state
         task["max_search_results"] = state.get("max_search_results")
+        task["prompt_set"] = state.get("prompt_set", "default")
         tasks.append(Send("perform_search", task))
     return tasks

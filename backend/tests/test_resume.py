@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from deepresearch.configuration import Config
 from main import run_research
 from langchain_core.messages import AIMessage
-from deepresearch.models import DeepResearchQueryList, DeepResearchSearchTask
+from deepresearch.interactive.models import DeepResearchQueryList, DeepResearchSearchTask
 
 @pytest.mark.asyncio
 async def test_resume_functionality(tmp_path, mock_llm, mock_search_tools, mocker, capsys):
@@ -18,13 +18,14 @@ async def test_resume_functionality(tmp_path, mock_llm, mock_search_tools, mocke
     mock_config.db_provider = "sqlite"
     mock_config.db_uri = db_uri
     mock_config.log_level = "INFO"
-    mocker.patch("src.configuration.Config.from_env", return_value=mock_config)
+    mock_config.redis_enabled = False
+    mocker.patch("deepresearch.configuration.Config.from_env", return_value=mock_config)
     
     # Mock dependencies
-    mocker.patch("src.nodes.get_llm", return_value=mock_llm)
-    mocker.patch("src.nodes.search_tools", mock_search_tools)
-    mocker.patch("src.nodes.get_search_result", return_value=None)
-    mocker.patch("src.nodes.save_search_result", new_callable=AsyncMock)
+    mocker.patch("deepresearch.interactive.nodes.get_llm", return_value=mock_llm)
+    mocker.patch("deepresearch.interactive.nodes.search_tools", mock_search_tools)
+    mocker.patch("deepresearch.interactive.nodes.get_search_result", return_value=None)
+    mocker.patch("deepresearch.interactive.nodes.save_search_result", new_callable=AsyncMock)
     
     # Setup mock responses for LLM
     mock_plan = AIMessage(content="Mocked Plan")
@@ -116,12 +117,13 @@ async def test_new_session_with_thread_id(tmp_path, mock_llm, mock_search_tools,
     mock_config.db_provider = "sqlite"
     mock_config.db_uri = db_uri
     mock_config.log_level = "INFO"
-    mocker.patch("src.configuration.Config.from_env", return_value=mock_config)
+    mock_config.redis_enabled = False
+    mocker.patch("deepresearch.configuration.Config.from_env", return_value=mock_config)
     
-    mocker.patch("src.nodes.get_llm", return_value=mock_llm)
-    mocker.patch("src.nodes.search_tools", mock_search_tools)
-    mocker.patch("src.nodes.get_search_result", return_value=None)
-    mocker.patch("src.nodes.save_search_result", new_callable=AsyncMock)
+    mocker.patch("deepresearch.interactive.nodes.get_llm", return_value=mock_llm)
+    mocker.patch("deepresearch.interactive.nodes.search_tools", mock_search_tools)
+    mocker.patch("deepresearch.interactive.nodes.get_search_result", return_value=None)
+    mocker.patch("deepresearch.interactive.nodes.save_search_result", new_callable=AsyncMock)
     mocker.patch("builtins.input", return_value="")
     
     # mock_console = MagicMock()

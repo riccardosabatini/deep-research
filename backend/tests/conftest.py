@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from langchain_core.messages import AIMessage
-from deepresearch.models import SearchResultItem, ImageSource
+from deepresearch.interactive.models import SearchResultItem, ImageSource
 
 from langchain_openai import ChatOpenAI
 

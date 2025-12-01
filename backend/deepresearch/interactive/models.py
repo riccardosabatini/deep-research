@@ -1,0 +1,47 @@
+import uuid
+from typing import List, Optional, TypedDict, Annotated
+import operator
+from pydantic import BaseModel, Field
+import shortuuid
+
+# --- Data Models ---
+
+from ..models import SearchResultItem, ImageSource
+
+class DeepResearchSearchTask(BaseModel):
+    query: str
+    research_goal: str = Field(..., description="The specific goal of this search query")
+    max_search_results: Optional[int] = None
+
+class DeepResearchQueryList(BaseModel):
+    queries: List[DeepResearchSearchTask]
+
+class DeepResearchSearchResult(BaseModel):
+    query: str
+    research_goal: str
+    learnings: List[str]
+    sources: List[SearchResultItem] = []
+    images: List[ImageSource] = []
+
+class FinalReportResult(BaseModel):
+    title: str
+    final_report: str
+    learnings: List[str]
+    sources: List[SearchResultItem]
+    images: List[ImageSource]
+
+# --- Graph State ---
+
+class DeepResearchState(TypedDict):
+    query: str
+    report_plan: str
+    serp_queries: List[DeepResearchSearchTask]
+    # Annotated with operator.add to allow appending results from parallel nodes
+    search_results: Annotated[List[DeepResearchSearchResult], operator.add]
+    user_feedback: Optional[str]
+    feedback_loop_count: int
+    feedback_mode: str # "human" or "auto"
+    report_pages: int
+    max_search_results: int
+    prompt_set: str
+    final_report: str
